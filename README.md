@@ -1,3 +1,3 @@
-# Caidog
+# Caigo
 
-一个 CLI 智能体
+一个 TUI 智能体

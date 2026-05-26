@@ -1,4 +1,4 @@
-package caidog
+package caigo
 
 type Caidog struct {
 }
