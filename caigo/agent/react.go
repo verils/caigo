@@ -1,4 +1,4 @@
-package caigo
+package agent
 
 type Caidog struct {
 }
