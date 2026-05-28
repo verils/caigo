@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -187,9 +188,9 @@ func (m Model) View() string {
 		return "Initializing..."
 	}
 	return lipgloss.JoinVertical(lipgloss.Left,
-		m.renderStatusBar(),
 		m.vp.View(),
 		m.renderInput(),
+		m.renderStatusBar(),
 	)
 }
 
@@ -353,7 +354,7 @@ func (m Model) runAgent(input string) tea.Cmd {
 	ag := m.ag
 	go func() {
 		defer close(ch)
-		_, err := ag.Run(nil, input, func(ev agent.Event) error {
+		_, err := ag.Run(context.Background(), input, func(ev agent.Event) error {
 			switch ev.Type {
 			case agent.EventContentDelta:
 				ch <- agentDeltaMsg{text: ev.Delta}
