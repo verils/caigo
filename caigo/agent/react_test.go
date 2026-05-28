@@ -60,9 +60,9 @@ func TestAgentRunStreamsModelAndExecutesTool(t *testing.T) {
 		t.Fatalf("event types = %#v, want %#v", eventTypes, wantEvents)
 	}
 
-	history, err := agent.Memory.Messages(ctx)
+	history, err := agent.Session.Messages(ctx)
 	if err != nil {
-		t.Fatalf("Memory.Messages() error = %v", err)
+		t.Fatalf("Session.Messages() error = %v", err)
 	}
 	if len(history) != 4 {
 		t.Fatalf("history length = %d, want 4: %#v", len(history), history)

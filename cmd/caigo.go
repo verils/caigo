@@ -5,8 +5,8 @@ import (
 	"os"
 
 	"github.com/verils/caigo/caigo/agent"
-	"github.com/verils/caigo/caigo/memory"
 	"github.com/verils/caigo/caigo/model/openai"
+	"github.com/verils/caigo/caigo/session"
 	"github.com/verils/caigo/caigo/tui"
 )
 
@@ -34,15 +34,15 @@ func main() {
 		openai.WithContextWindowSize(128000),
 	)
 
-	mem := memory.New()
+	sess := session.New()
 	ag := agent.New(m)
-	ag.Memory = mem
+	ag.Session = sess
 
 	if err := tui.Run(tui.Config{
 		Agent:             ag,
 		ModelName:         modelName,
 		ContextWindowSize: 128000,
-		ContextEstimator:  mem,
+		ContextEstimator:  sess,
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

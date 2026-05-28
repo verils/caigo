@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/verils/caigo/caigo/memory"
 	"github.com/verils/caigo/caigo/message"
 	"github.com/verils/caigo/caigo/model"
+	"github.com/verils/caigo/caigo/session"
 	"github.com/verils/caigo/caigo/tool"
 )
 
@@ -21,7 +21,7 @@ var (
 
 type Agent struct {
 	Model    model.Model
-	Memory   memory.Memory
+	Session  session.Session
 	Tools    []tool.Tool
 	MaxTurns int
 }
@@ -44,7 +44,7 @@ type Event struct {
 func New(m model.Model, tools ...tool.Tool) *Agent {
 	return &Agent{
 		Model:    m,
-		Memory:   memory.New(),
+		Session:  session.New(),
 		Tools:    tools,
 		MaxTurns: defaultMaxTurns,
 	}
@@ -54,8 +54,8 @@ func (a *Agent) Run(ctx context.Context, input string, emit func(Event) error) (
 	if a.Model == nil {
 		return message.Message{}, ErrNoModel
 	}
-	if a.Memory == nil {
-		a.Memory = memory.New()
+	if a.Session == nil {
+		a.Session = session.New()
 	}
 
 	maxTurns := a.MaxTurns
@@ -64,7 +64,7 @@ func (a *Agent) Run(ctx context.Context, input string, emit func(Event) error) (
 	}
 
 	tools := indexTools(a.Tools)
-	if err := a.Memory.Append(ctx, message.User(input)); err != nil {
+	if err := a.Session.Append(ctx, message.User(input)); err != nil {
 		return message.Message{}, err
 	}
 
@@ -73,7 +73,7 @@ func (a *Agent) Run(ctx context.Context, input string, emit func(Event) error) (
 		if err != nil {
 			return message.Message{}, err
 		}
-		if err := a.Memory.Append(ctx, assistant); err != nil {
+		if err := a.Session.Append(ctx, assistant); err != nil {
 			return message.Message{}, err
 		}
 		if len(assistant.ToolCalls) == 0 {
@@ -82,7 +82,7 @@ func (a *Agent) Run(ctx context.Context, input string, emit func(Event) error) (
 
 		for _, call := range assistant.ToolCalls {
 			result := runTool(ctx, tools.byName, call)
-			if err := a.Memory.Append(ctx, result); err != nil {
+			if err := a.Session.Append(ctx, result); err != nil {
 				return message.Message{}, err
 			}
 			if emit != nil {
@@ -98,7 +98,7 @@ func (a *Agent) Run(ctx context.Context, input string, emit func(Event) error) (
 }
 
 func (a *Agent) runModelTurn(ctx context.Context, tools []tool.Description, emit func(Event) error) (message.Message, error) {
-	messages, err := a.Memory.Messages(ctx)
+	messages, err := a.Session.Messages(ctx)
 	if err != nil {
 		return message.Message{}, err
 	}
