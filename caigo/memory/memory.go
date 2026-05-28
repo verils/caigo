@@ -50,3 +50,20 @@ func (m *InMemory) Messages(ctx context.Context) ([]message.Message, error) {
 	}
 	return out, nil
 }
+
+// ContextTokens returns an estimated token count for all stored messages.
+// Uses a rough heuristic of ~4 characters per token.
+func (m *InMemory) ContextTokens() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	chars := 0
+	for _, msg := range m.messages {
+		chars += len(msg.Content) + len(msg.Name) + len(msg.ToolCallID)
+		for _, tc := range msg.ToolCalls {
+			chars += len(tc.Name) + len(tc.Input)
+		}
+	}
+	// Rough estimate: ~4 chars per token, plus ~4 overhead per message
+	return (chars+4*len(m.messages))/4 + 1
+}
