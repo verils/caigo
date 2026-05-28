@@ -299,23 +299,15 @@ func (m Model) renderEntry(b *strings.Builder, e Entry) {
 }
 
 func (m Model) renderStatusBar() string {
-	left := " " + m.modelName + " "
-
-	var right string
+	bar := " " + m.modelName + " "
 	if m.ctxEstimator != nil {
 		used := m.ctxEstimator.ContextTokens()
 		if m.ctxWindowSize > 0 {
-			right = fmt.Sprintf(" %d / %d tokens ", used, m.ctxWindowSize)
+			bar += fmt.Sprintf("· used %d / %d tokens ", used, m.ctxWindowSize)
 		} else {
-			right = fmt.Sprintf(" %d tokens ", used)
+			bar += fmt.Sprintf("· used %d tokens ", used)
 		}
 	}
-
-	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 0 {
-		gap = 0
-	}
-	bar := left + strings.Repeat(" ", gap) + right
 	return styleStatus.Width(m.width).Render(bar)
 }
 
