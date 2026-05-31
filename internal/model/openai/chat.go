@@ -168,7 +168,15 @@ func (c *ChatCompletion) readStream(body io.Reader, emit func(model.Event) error
 		if len(chunk.Choices) == 0 {
 			continue
 		}
-		delta := chunk.Choices[0].Delta
+		choice := chunk.Choices[0]
+
+		if choice.FinishReason != "" {
+			if err := emit(model.Event{Type: model.EventFinish, FinishReason: choice.FinishReason}); err != nil {
+				return err
+			}
+		}
+
+		delta := choice.Delta
 
 		if delta.Content != "" {
 			if err := emit(model.Event{Type: model.EventContentDelta, Delta: delta.Content}); err != nil {
@@ -257,7 +265,8 @@ type streamChunk struct {
 }
 
 type streamChoice struct {
-	Delta streamDelta `json:"delta"`
+	Delta        streamDelta `json:"delta"`
+	FinishReason string      `json:"finish_reason,omitempty"`
 }
 
 type streamDelta struct {

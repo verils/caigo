@@ -11,17 +11,11 @@ import (
 	"github.com/verils/caigo/internal/tool"
 )
 
-const defaultMaxTurns = 8
-
-var (
-	ErrNoModel  = errors.New("agent: model is required")
-	ErrMaxTurns = errors.New("agent: max turns reached")
-)
+var ErrNoModel = errors.New("agent: model is required")
 
 type Agent struct {
-	Model    model.Model
-	Tools    []tool.Tool
-	MaxTurns int
+	Model model.Model
+	Tools []tool.Tool
 }
 
 type EventType string
@@ -41,36 +35,35 @@ type Event struct {
 
 func New(m model.Model, tools ...tool.Tool) *Agent {
 	return &Agent{
-		Model:    m,
-		Tools:    tools,
-		MaxTurns: defaultMaxTurns,
+		Model: m,
+		Tools: tools,
 	}
 }
 
 // Run processes a conversation turn given the full message history.
 // It returns only the new messages generated during this turn (assistant + tool results).
 // The caller is responsible for managing session state.
+// The loop continues until the model signals completion via finishReason: stop.
 func (a *Agent) Run(ctx context.Context, history []message.Message, emit func(Event) error) ([]message.Message, error) {
 	if a.Model == nil {
 		return nil, ErrNoModel
-	}
-
-	maxTurns := a.MaxTurns
-	if maxTurns <= 0 {
-		maxTurns = defaultMaxTurns
 	}
 
 	tools := indexTools(a.Tools)
 	local := append([]message.Message(nil), history...)
 	var added []message.Message
 
-	for turn := 0; turn < maxTurns; turn++ {
-		assistant, err := a.runModelTurn(ctx, local, tools.descriptions, emit)
+	for {
+		assistant, finished, err := a.runModelTurn(ctx, local, tools.descriptions, emit)
 		if err != nil {
 			return added, err
 		}
 		local = append(local, assistant)
 		added = append(added, assistant)
+
+		if finished {
+			return added, nil
+		}
 
 		if len(assistant.ToolCalls) == 0 {
 			return added, nil
@@ -88,12 +81,12 @@ func (a *Agent) Run(ctx context.Context, history []message.Message, emit func(Ev
 			}
 		}
 	}
-
-	return added, fmt.Errorf("%w: %d", ErrMaxTurns, maxTurns)
 }
 
-func (a *Agent) runModelTurn(ctx context.Context, history []message.Message, tools []tool.Description, emit func(Event) error) (message.Message, error) {
+func (a *Agent) runModelTurn(ctx context.Context, history []message.Message, tools []tool.Description, emit func(Event) error) (message.Message, bool, error) {
 	assistant := message.Message{Role: message.RoleAssistant}
+	var finished bool
+
 	req := model.Request{Messages: history, Tools: tools}
 	err := a.Model.Stream(ctx, req, func(ev model.Event) error {
 		switch ev.Type {
@@ -115,16 +108,20 @@ func (a *Agent) runModelTurn(ctx context.Context, history []message.Message, too
 				call := call
 				return emit(Event{Type: EventToolCall, ToolCall: &call})
 			}
+		case model.EventFinish:
+			if ev.FinishReason == "stop" {
+				finished = true
+			}
 		default:
 			return fmt.Errorf("agent: unknown model event type %q", ev.Type)
 		}
 		return nil
 	})
 	if err != nil {
-		return message.Message{}, err
+		return message.Message{}, false, err
 	}
 
-	return assistant, nil
+	return assistant, finished, nil
 }
 
 type indexedTools struct {

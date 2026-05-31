@@ -117,7 +117,10 @@ func (m *fakeModel) Stream(ctx context.Context, req model.Request, emit func(mod
 		if last.Role != message.RoleTool || last.ToolCallID != "call_echo" || last.Content != "echo:hello" {
 			return fmt.Errorf("second request last message = %#v", last)
 		}
-		return emit(model.Event{Type: model.EventContentDelta, Delta: "done: " + last.Content})
+		if err := emit(model.Event{Type: model.EventContentDelta, Delta: "done: " + last.Content}); err != nil {
+			return err
+		}
+		return emit(model.Event{Type: model.EventFinish, FinishReason: "stop"})
 	default:
 		return fmt.Errorf("unexpected model call %d", m.calls)
 	}

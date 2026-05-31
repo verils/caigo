@@ -21,10 +21,12 @@ type EventType string
 const (
 	EventContentDelta EventType = "content_delta"
 	EventToolCall     EventType = "tool_call"
+	EventFinish       EventType = "finish"
 )
 
 type Event struct {
-	Type     EventType
-	Delta    string
-	ToolCall *message.ToolCall
+	Type         EventType
+	Delta        string
+	ToolCall     *message.ToolCall
+	FinishReason string // set when Type == EventFinish
 }
