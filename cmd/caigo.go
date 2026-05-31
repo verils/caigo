@@ -49,7 +49,7 @@ func main() {
 	)
 
 	sess := session.New()
-	ag := agent.New(m, tool.ReadFile, tool.WriteFile, tool.RunPwsh, tool.RunBash)
+	ag := agent.New(m, tool.ReadFile, tool.WriteFile, tool.ListFiles, tool.RunPwsh, tool.RunBash)
 
 	if err := tui.Run(tui.Config{
 		Agent:             ag,
