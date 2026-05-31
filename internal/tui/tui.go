@@ -10,6 +10,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/verils/caigo/internal/agent"
+	"github.com/verils/caigo/internal/message"
+	"github.com/verils/caigo/internal/session"
 )
 
 // EntryKind identifies the type of conversation entry.
@@ -37,6 +39,7 @@ type ContextEstimator interface {
 // Config holds TUI creation parameters.
 type Config struct {
 	Agent             *agent.Agent
+	Session           session.Session
 	ModelName         string
 	ContextWindowSize int              // 0 = hide denominator
 	ContextEstimator  ContextEstimator // nil = hide usage
@@ -50,6 +53,7 @@ type Model struct {
 	ready        bool
 
 	ag            *agent.Agent
+	sess          session.Session
 	modelName     string
 	ctxWindowSize int
 	ctxEstimator  ContextEstimator
@@ -73,6 +77,7 @@ func New(cfg Config) Model {
 
 	return Model{
 		ag:            cfg.Agent,
+		sess:          cfg.Session,
 		modelName:     cfg.ModelName,
 		ctxWindowSize: cfg.ContextWindowSize,
 		ctxEstimator:  cfg.ContextEstimator,
@@ -344,9 +349,22 @@ type agentDoneMsg struct{}
 func (m Model) runAgent(input string) tea.Cmd {
 	ch := m.eventCh
 	ag := m.ag
+	sess := m.sess
 	go func() {
 		defer close(ch)
-		_, err := ag.Run(context.Background(), input, func(ev agent.Event) error {
+
+		ctx := context.Background()
+		if err := sess.Append(ctx, message.User(input)); err != nil {
+			ch <- agentDeltaMsg{err: err}
+			return
+		}
+		history, err := sess.Messages(ctx)
+		if err != nil {
+			ch <- agentDeltaMsg{err: err}
+			return
+		}
+
+		added, err := ag.Run(ctx, history, func(ev agent.Event) error {
 			switch ev.Type {
 			case agent.EventContentDelta:
 				ch <- agentDeltaMsg{text: ev.Delta}
@@ -364,6 +382,13 @@ func (m Model) runAgent(input string) tea.Cmd {
 		})
 		if err != nil {
 			ch <- agentDeltaMsg{err: err}
+			return
+		}
+		for _, msg := range added {
+			if err := sess.Append(ctx, msg); err != nil {
+				ch <- agentDeltaMsg{err: err}
+				return
+			}
 		}
 	}()
 	return func() tea.Msg {

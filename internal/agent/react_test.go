@@ -14,7 +14,7 @@ import (
 
 func TestAgentRunStreamsModelAndExecutesTool(t *testing.T) {
 	ctx := context.Background()
-	model := &fakeModel{}
+	m := &fakeModel{}
 	var toolInputs []string
 	echo := tool.Func{
 		Desc: tool.Description{
@@ -28,10 +28,12 @@ func TestAgentRunStreamsModelAndExecutesTool(t *testing.T) {
 		},
 	}
 
-	agent := New(model, echo)
+	ag := New(m, echo)
+
+	history := []message.Message{message.User("say hello")}
 	var stream strings.Builder
 	var eventTypes []EventType
-	got, err := agent.Run(ctx, "say hello", func(ev Event) error {
+	added, err := ag.Run(ctx, history, func(ev Event) error {
 		eventTypes = append(eventTypes, ev.Type)
 		if ev.Type == EventContentDelta {
 			stream.WriteString(ev.Delta)
@@ -42,11 +44,25 @@ func TestAgentRunStreamsModelAndExecutesTool(t *testing.T) {
 		t.Fatalf("Run() error = %v", err)
 	}
 
-	if got.Content != "done: echo:hello" {
-		t.Fatalf("final content = %q, want %q", got.Content, "done: echo:hello")
+	if len(added) != 3 {
+		t.Fatalf("added messages = %d, want 3", len(added))
 	}
-	if model.calls != 2 {
-		t.Fatalf("model calls = %d, want 2", model.calls)
+
+	// First: assistant with tool call
+	if len(added[0].ToolCalls) != 1 || added[0].ToolCalls[0].Name != "echo" {
+		t.Fatalf("assistant tool call message = %#v", added[0])
+	}
+	// Second: tool result
+	if added[1].Role != message.RoleTool || added[1].Content != "echo:hello" {
+		t.Fatalf("tool result message = %#v", added[1])
+	}
+	// Third: final assistant
+	if added[2].Role != message.RoleAssistant || added[2].Content != "done: echo:hello" {
+		t.Fatalf("final assistant message = %#v", added[2])
+	}
+
+	if m.calls != 2 {
+		t.Fatalf("model calls = %d, want 2", m.calls)
 	}
 	if !reflect.DeepEqual(toolInputs, []string{"hello"}) {
 		t.Fatalf("tool inputs = %#v, want %#v", toolInputs, []string{"hello"})
@@ -58,26 +74,6 @@ func TestAgentRunStreamsModelAndExecutesTool(t *testing.T) {
 	wantEvents := []EventType{EventContentDelta, EventToolCall, EventToolResult, EventContentDelta}
 	if !reflect.DeepEqual(eventTypes, wantEvents) {
 		t.Fatalf("event types = %#v, want %#v", eventTypes, wantEvents)
-	}
-
-	history, err := agent.Session.Messages(ctx)
-	if err != nil {
-		t.Fatalf("Session.Messages() error = %v", err)
-	}
-	if len(history) != 4 {
-		t.Fatalf("history length = %d, want 4: %#v", len(history), history)
-	}
-	if history[0].Role != message.RoleUser || history[0].Content != "say hello" {
-		t.Fatalf("first message = %#v", history[0])
-	}
-	if len(history[1].ToolCalls) != 1 || history[1].ToolCalls[0].Name != "echo" {
-		t.Fatalf("assistant tool call message = %#v", history[1])
-	}
-	if history[2].Role != message.RoleTool || history[2].Content != "echo:hello" {
-		t.Fatalf("tool result message = %#v", history[2])
-	}
-	if history[3].Role != message.RoleAssistant || history[3].Content != got.Content {
-		t.Fatalf("final assistant message = %#v", history[3])
 	}
 }
 

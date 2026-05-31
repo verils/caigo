@@ -8,7 +8,6 @@ import (
 
 	"github.com/verils/caigo/internal/message"
 	"github.com/verils/caigo/internal/model"
-	"github.com/verils/caigo/internal/session"
 	"github.com/verils/caigo/internal/tool"
 )
 
@@ -21,7 +20,6 @@ var (
 
 type Agent struct {
 	Model    model.Model
-	Session  session.Session
 	Tools    []tool.Tool
 	MaxTurns int
 }
@@ -44,18 +42,17 @@ type Event struct {
 func New(m model.Model, tools ...tool.Tool) *Agent {
 	return &Agent{
 		Model:    m,
-		Session:  session.New(),
 		Tools:    tools,
 		MaxTurns: defaultMaxTurns,
 	}
 }
 
-func (a *Agent) Run(ctx context.Context, input string, emit func(Event) error) (message.Message, error) {
+// Run processes a conversation turn given the full message history.
+// It returns only the new messages generated during this turn (assistant + tool results).
+// The caller is responsible for managing session state.
+func (a *Agent) Run(ctx context.Context, history []message.Message, emit func(Event) error) ([]message.Message, error) {
 	if a.Model == nil {
-		return message.Message{}, ErrNoModel
-	}
-	if a.Session == nil {
-		a.Session = session.New()
+		return nil, ErrNoModel
 	}
 
 	maxTurns := a.MaxTurns
@@ -64,48 +61,41 @@ func (a *Agent) Run(ctx context.Context, input string, emit func(Event) error) (
 	}
 
 	tools := indexTools(a.Tools)
-	if err := a.Session.Append(ctx, message.User(input)); err != nil {
-		return message.Message{}, err
-	}
+	local := append([]message.Message(nil), history...)
+	var added []message.Message
 
 	for turn := 0; turn < maxTurns; turn++ {
-		assistant, err := a.runModelTurn(ctx, tools.descriptions, emit)
+		assistant, err := a.runModelTurn(ctx, local, tools.descriptions, emit)
 		if err != nil {
-			return message.Message{}, err
+			return added, err
 		}
-		if err := a.Session.Append(ctx, assistant); err != nil {
-			return message.Message{}, err
-		}
+		local = append(local, assistant)
+		added = append(added, assistant)
+
 		if len(assistant.ToolCalls) == 0 {
-			return assistant, nil
+			return added, nil
 		}
 
 		for _, call := range assistant.ToolCalls {
 			result := runTool(ctx, tools.byName, call)
-			if err := a.Session.Append(ctx, result); err != nil {
-				return message.Message{}, err
-			}
+			local = append(local, result)
+			added = append(added, result)
 			if emit != nil {
-				result := result.Clone()
-				if err := emit(Event{Type: EventToolResult, ToolResult: &result}); err != nil {
-					return message.Message{}, err
+				r := result.Clone()
+				if err := emit(Event{Type: EventToolResult, ToolResult: &r}); err != nil {
+					return added, err
 				}
 			}
 		}
 	}
 
-	return message.Message{}, fmt.Errorf("%w: %d", ErrMaxTurns, maxTurns)
+	return added, fmt.Errorf("%w: %d", ErrMaxTurns, maxTurns)
 }
 
-func (a *Agent) runModelTurn(ctx context.Context, tools []tool.Description, emit func(Event) error) (message.Message, error) {
-	messages, err := a.Session.Messages(ctx)
-	if err != nil {
-		return message.Message{}, err
-	}
-
+func (a *Agent) runModelTurn(ctx context.Context, history []message.Message, tools []tool.Description, emit func(Event) error) (message.Message, error) {
 	assistant := message.Message{Role: message.RoleAssistant}
-	req := model.Request{Messages: messages, Tools: tools}
-	err = a.Model.Stream(ctx, req, func(ev model.Event) error {
+	req := model.Request{Messages: history, Tools: tools}
+	err := a.Model.Stream(ctx, req, func(ev model.Event) error {
 		switch ev.Type {
 		case model.EventContentDelta:
 			assistant.Content += ev.Delta
