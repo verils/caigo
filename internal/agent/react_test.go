@@ -28,7 +28,7 @@ func TestAgentRunStreamsModelAndExecutesTool(t *testing.T) {
 		},
 	}
 
-	ag := New(m, echo)
+	ag := New(m, []tool.Tool{echo})
 
 	history := []message.Message{message.User("say hello")}
 	var stream strings.Builder

@@ -33,7 +33,7 @@ type Event struct {
 	ToolResult *message.Message
 }
 
-func New(m model.Model, tools ...tool.Tool) *Agent {
+func New(m model.Model, tools []tool.Tool) *Agent {
 	return &Agent{
 		Model: m,
 		Tools: tools,
