@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/verils/caigo/caigo/message"
-	"github.com/verils/caigo/caigo/model"
-	"github.com/verils/caigo/caigo/tool"
+	"github.com/verils/caigo/internal/message"
+	"github.com/verils/caigo/internal/model"
+	"github.com/verils/caigo/internal/tool"
 )
 
 func TestAgentRunStreamsModelAndExecutesTool(t *testing.T) {
