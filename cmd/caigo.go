@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/verils/caigo/internal/agent"
 	"github.com/verils/caigo/internal/config"
@@ -20,46 +22,25 @@ func main() {
 
 	modelKey := os.Getenv("CAIGO_MODEL")
 
-	var (
-		apiKey            string
-		baseURL           string
-		modelName         string
-		contextWindowSize = 128000
-	)
+	if !cfg.HasModel(modelKey) {
+		cfg = promptSetup()
+	}
 
-	if cfg.HasModel(modelKey) {
-		resolved, err := cfg.Resolve(modelKey)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		apiKey = resolved.APIKey
-		baseURL = resolved.BaseURL
-		modelName = resolved.Model
-		if resolved.ContextWindowSize > 0 {
-			contextWindowSize = resolved.ContextWindowSize
-		}
-	} else {
-		// Fallback to environment variables.
-		apiKey = os.Getenv("OPENAI_API_KEY")
-		if apiKey == "" {
-			fmt.Fprintln(os.Stderr, "OPENAI_API_KEY is required (or configure ~/.caigo/config.json)")
-			os.Exit(1)
-		}
-		baseURL = os.Getenv("OPENAI_BASE_URL")
-		if baseURL == "" {
-			baseURL = "https://api.openai.com/v1"
-		}
-		modelName = os.Getenv("OPENAI_MODEL")
-		if modelName == "" {
-			modelName = "gpt-4o"
-		}
+	resolved, err := cfg.Resolve(modelKey)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	contextWindowSize := 128000
+	if resolved.ContextWindowSize > 0 {
+		contextWindowSize = resolved.ContextWindowSize
 	}
 
 	m := openai.New(
-		openai.WithAPIKey(apiKey),
-		openai.WithBaseURL(baseURL),
-		openai.WithModel(modelName),
+		openai.WithAPIKey(resolved.APIKey),
+		openai.WithBaseURL(resolved.BaseURL),
+		openai.WithModel(resolved.Model),
 		openai.WithContextWindowSize(contextWindowSize),
 	)
 
@@ -69,11 +50,68 @@ func main() {
 
 	if err := tui.Run(tui.Config{
 		Agent:             ag,
-		ModelName:         modelName,
+		ModelName:         resolved.Model,
 		ContextWindowSize: contextWindowSize,
 		ContextEstimator:  sess,
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func promptSetup() config.Config {
+	stdin := bufio.NewReader(os.Stdin)
+
+	fmt.Println("No configuration found. Let's set up Caigo.")
+	fmt.Println()
+
+	baseURL := prompt(stdin, "Base URL (e.g. https://api.openai.com/v1)", "https://api.openai.com/v1")
+	apiKey := prompt(stdin, "API Key", "")
+	if apiKey == "" {
+		fmt.Fprintln(os.Stderr, "API Key is required")
+		os.Exit(1)
+	}
+	modelName := prompt(stdin, "Model name (e.g. gpt-4o)", "gpt-4o")
+
+	cfg := config.Config{
+		Model: modelName,
+		Providers: map[string]config.Provider{
+			"default": {
+				Name:    "Default",
+				BaseURL: baseURL,
+				APIKey:  apiKey,
+				Type:    "openai-compatible",
+			},
+		},
+		Models: map[string]config.Model{
+			modelName: {
+				Name:              modelName,
+				Provider:          "default",
+				ContextWindowSize: 128000,
+			},
+		},
+	}
+
+	if err := cfg.Save(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to save config: %v\n", err)
+	} else {
+		fmt.Println("Configuration saved to ~/.caigo/config.json")
+	}
+	fmt.Println()
+
+	return cfg
+}
+
+func prompt(r *bufio.Reader, label, defaultVal string) string {
+	if defaultVal != "" {
+		fmt.Printf("  %s [%s]: ", label, defaultVal)
+	} else {
+		fmt.Printf("  %s: ", label)
+	}
+	line, _ := r.ReadString('\n')
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return defaultVal
+	}
+	return line
 }

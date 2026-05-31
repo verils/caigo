@@ -94,6 +94,49 @@ func TestLoadAndResolve(t *testing.T) {
 	}
 }
 
+func TestSaveAndLoad(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("USERPROFILE", dir)
+	t.Setenv("HOME", dir)
+
+	cfg := Config{
+		Model: "gpt-4o",
+		Providers: map[string]Provider{
+			"default": {
+				Name:    "OpenAI",
+				BaseURL: "https://api.openai.com/v1",
+				APIKey:  "sk-abc",
+				Type:    "openai-compatible",
+			},
+		},
+		Models: map[string]Model{
+			"gpt-4o": {
+				Name:              "GPT-4o",
+				Provider:          "default",
+				ContextWindowSize: 128000,
+			},
+		},
+	}
+
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.Model != "gpt-4o" {
+		t.Errorf("Model = %q, want %q", loaded.Model, "gpt-4o")
+	}
+	if loaded.Providers["default"].APIKey != "sk-abc" {
+		t.Errorf("APIKey = %q, want %q", loaded.Providers["default"].APIKey, "sk-abc")
+	}
+	if loaded.Models["gpt-4o"].ContextWindowSize != 128000 {
+		t.Errorf("ContextWindowSize = %d, want %d", loaded.Models["gpt-4o"].ContextWindowSize, 128000)
+	}
+}
+
 func TestHasModel(t *testing.T) {
 	cfg := Config{
 		Model: "default-model",

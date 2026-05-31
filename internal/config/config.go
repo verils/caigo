@@ -98,3 +98,25 @@ func (c Config) HasModel(modelKey string) bool {
 	_, ok := c.Models[modelKey]
 	return ok
 }
+
+// Save writes the config to ~/.caigo/config.json.
+func (c Config) Save() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("config: get home dir: %w", err)
+	}
+	dir := filepath.Join(home, ".caigo")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("config: create dir: %w", err)
+	}
+	path := filepath.Join(dir, "config.json")
+
+	data, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return fmt.Errorf("config: marshal: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("config: write %s: %w", path, err)
+	}
+	return nil
+}
