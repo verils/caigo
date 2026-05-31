@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -14,9 +15,11 @@ import (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
 
@@ -28,7 +31,7 @@ func main() {
 
 	resolved, err := cfg.Resolve(modelKey)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		slog.Error("failed to resolve model", "error", err)
 		os.Exit(1)
 	}
 
@@ -54,7 +57,7 @@ func main() {
 		ContextWindowSize: contextWindowSize,
 		ContextEstimator:  sess,
 	}); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		slog.Error("tui exited with error", "error", err)
 		os.Exit(1)
 	}
 }
@@ -68,7 +71,7 @@ func promptSetup() config.Config {
 	baseURL := prompt(stdin, "Base URL (e.g. https://api.openai.com/v1)", "https://api.openai.com/v1")
 	apiKey := prompt(stdin, "API Key", "")
 	if apiKey == "" {
-		fmt.Fprintln(os.Stderr, "API Key is required")
+		slog.Error("API Key is required")
 		os.Exit(1)
 	}
 	modelName := prompt(stdin, "Model name (e.g. gpt-4o)", "gpt-4o")
@@ -93,7 +96,7 @@ func promptSetup() config.Config {
 	}
 
 	if err := cfg.Save(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to save config: %v\n", err)
+		slog.Warn("failed to save config", "error", err)
 	} else {
 		fmt.Println("Configuration saved to ~/.caigo/config.json")
 	}
