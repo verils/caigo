@@ -11,6 +11,7 @@ import (
 	"github.com/verils/caigo/internal/config"
 	"github.com/verils/caigo/internal/model/openai"
 	"github.com/verils/caigo/internal/session"
+	"github.com/verils/caigo/internal/tool"
 	"github.com/verils/caigo/internal/tui"
 )
 
@@ -48,7 +49,7 @@ func main() {
 	)
 
 	sess := session.New()
-	ag := agent.New(m)
+	ag := agent.New(m, tool.ReadFile, tool.WriteFile, tool.RunPwsh, tool.RunBash)
 	ag.Session = sess
 
 	if err := tui.Run(tui.Config{
