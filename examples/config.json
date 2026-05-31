@@ -1,0 +1,23 @@
+{
+  "model": "mimo-v2.5-pro",
+  "providers": {
+    "xiaomi-mimo": {
+      "name": "Xiaomi MiMo",
+      "baseUrl": "",
+      "apiKey": "",
+      "type": "openai-compatible"
+    }
+  },
+  "models": {
+    "mimo-v2.5-pro": {
+      "name": "MiMo V2.5 Pro",
+      "provider": "xiaomi-mimo",
+      "contextWindowSize": 128000
+    },
+    "mimo-v2.5": {
+      "name": "MiMo V2.5",
+      "provider": "xiaomi-mimo",
+      "contextWindowSize": 64000
+    }
+  }
+}
