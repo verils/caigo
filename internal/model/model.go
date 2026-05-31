@@ -3,8 +3,8 @@ package model
 import (
 	"context"
 
-	"github.com/verils/caigo/caigo/message"
-	"github.com/verils/caigo/caigo/tool"
+	"github.com/verils/caigo/internal/message"
+	"github.com/verils/caigo/internal/tool"
 )
 
 type Model interface {

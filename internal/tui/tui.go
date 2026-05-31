@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/verils/caigo/caigo/agent"
+	"github.com/verils/caigo/internal/agent"
 )
 
 // EntryKind identifies the type of conversation entry.

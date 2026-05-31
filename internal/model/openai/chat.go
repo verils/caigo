@@ -11,8 +11,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/verils/caigo/caigo/message"
-	"github.com/verils/caigo/caigo/model"
+	"github.com/verils/caigo/internal/message"
+	"github.com/verils/caigo/internal/model"
 )
 
 const (

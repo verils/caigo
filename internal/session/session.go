@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/verils/caigo/caigo/message"
+	"github.com/verils/caigo/internal/message"
 )
 
 type Session interface {

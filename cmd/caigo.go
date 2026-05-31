@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/verils/caigo/caigo/agent"
-	"github.com/verils/caigo/caigo/model/openai"
-	"github.com/verils/caigo/caigo/session"
-	"github.com/verils/caigo/caigo/tui"
+	"github.com/verils/caigo/internal/agent"
+	"github.com/verils/caigo/internal/model/openai"
+	"github.com/verils/caigo/internal/session"
+	"github.com/verils/caigo/internal/tui"
 )
 
 func main() {

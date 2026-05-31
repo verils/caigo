@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/verils/caigo/caigo/message"
-	"github.com/verils/caigo/caigo/model"
-	"github.com/verils/caigo/caigo/session"
-	"github.com/verils/caigo/caigo/tool"
+	"github.com/verils/caigo/internal/message"
+	"github.com/verils/caigo/internal/model"
+	"github.com/verils/caigo/internal/session"
+	"github.com/verils/caigo/internal/tool"
 )
 
 const defaultMaxTurns = 8
