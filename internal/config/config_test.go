@@ -71,8 +71,8 @@ func TestLoadAndResolve(t *testing.T) {
 	if resolved.APIKey != "sk-test" {
 		t.Errorf("APIKey = %q, want %q", resolved.APIKey, "sk-test")
 	}
-	if resolved.Model != "MiMo V2.5 Pro" {
-		t.Errorf("Model = %q, want %q", resolved.Model, "MiMo V2.5 Pro")
+	if resolved.Model != "mimo-v2.5-pro" {
+		t.Errorf("Model = %q, want %q", resolved.Model, "mimo-v2.5-pro")
 	}
 	if resolved.ContextWindowSize != 128000 {
 		t.Errorf("ContextWindowSize = %d, want %d", resolved.ContextWindowSize, 128000)

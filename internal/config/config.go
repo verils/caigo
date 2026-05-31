@@ -84,7 +84,7 @@ func (c Config) Resolve(modelKey string) (ResolvedModel, error) {
 	return ResolvedModel{
 		BaseURL:           p.BaseURL,
 		APIKey:            p.APIKey,
-		Model:             m.Name,
+		Model:             modelKey,
 		ContextWindowSize: m.ContextWindowSize,
 	}, nil
 }
