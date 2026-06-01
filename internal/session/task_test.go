@@ -1,4 +1,4 @@
-package agent
+package session
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"github.com/verils/caigo/internal/tool"
 )
 
-func TestAgentRunStreamsModelAndExecutesTool(t *testing.T) {
+func TestTaskRunStreamsModelAndExecutesTool(t *testing.T) {
 	ctx := context.Background()
 	m := &fakeModel{}
 	var toolInputs []string
@@ -28,12 +28,12 @@ func TestAgentRunStreamsModelAndExecutesTool(t *testing.T) {
 		},
 	}
 
-	ag := New(m, []tool.Tool{echo})
+	task := NewTask(m, []tool.Tool{echo})
+	sess := New(message.User("say hello"))
 
-	history := []message.Message{message.User("say hello")}
 	var stream strings.Builder
 	var eventTypes []EventType
-	added, err := ag.Run(ctx, history, func(ev Event) error {
+	added, err := task.Run(ctx, sess, func(ev Event) error {
 		eventTypes = append(eventTypes, ev.Type)
 		if ev.Type == EventContentDelta {
 			stream.WriteString(ev.Delta)
@@ -74,6 +74,15 @@ func TestAgentRunStreamsModelAndExecutesTool(t *testing.T) {
 	wantEvents := []EventType{EventContentDelta, EventToolCall, EventToolResult, EventContentDelta}
 	if !reflect.DeepEqual(eventTypes, wantEvents) {
 		t.Fatalf("event types = %#v, want %#v", eventTypes, wantEvents)
+	}
+
+	// Verify session was updated
+	messages, err := sess.Messages(ctx)
+	if err != nil {
+		t.Fatalf("session.Messages() error = %v", err)
+	}
+	if len(messages) != 4 { // user + 3 added
+		t.Fatalf("session messages = %d, want 4", len(messages))
 	}
 }
 

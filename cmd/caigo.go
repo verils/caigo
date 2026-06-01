@@ -7,7 +7,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/verils/caigo/internal/agent"
 	"github.com/verils/caigo/internal/config"
 	"github.com/verils/caigo/internal/model/openai"
 	"github.com/verils/caigo/internal/session"
@@ -49,10 +48,10 @@ func main() {
 	)
 
 	sess := session.New()
-	ag := agent.New(m, tool.DefaultTools)
 
 	if err := tui.Run(tui.Config{
-		Agent:             ag,
+		Model:             m,
+		Tools:             tool.DefaultTools,
 		Session:           sess,
 		ModelName:         resolved.Model,
 		ContextWindowSize: contextWindowSize,

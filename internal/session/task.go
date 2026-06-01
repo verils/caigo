@@ -1,4 +1,4 @@
-package agent
+package session
 
 import (
 	"context"
@@ -11,12 +11,7 @@ import (
 	"github.com/verils/caigo/internal/tool"
 )
 
-var ErrNoModel = errors.New("agent: model is required")
-
-type Agent struct {
-	Model model.Model
-	Tools []tool.Tool
-}
+var ErrNoModel = errors.New("session: model is required")
 
 type EventType string
 
@@ -33,30 +28,43 @@ type Event struct {
 	ToolResult *message.Message
 }
 
-func New(m model.Model, tools []tool.Tool) *Agent {
-	return &Agent{
+type Task struct {
+	Model model.Model
+	Tools []tool.Tool
+}
+
+func NewTask(m model.Model, tools []tool.Tool) *Task {
+	return &Task{
 		Model: m,
 		Tools: tools,
 	}
 }
 
-// Run processes a conversation turn given the full message history.
-// It returns only the new messages generated during this turn (assistant + tool results).
-// The caller is responsible for managing session state.
+// Run processes a conversation turn using the provided session.
+// It appends new messages to the session and returns only the newly generated messages.
 // The loop continues until the model signals completion via finishReason: stop.
-func (a *Agent) Run(ctx context.Context, history []message.Message, emit func(Event) error) ([]message.Message, error) {
-	if a.Model == nil {
+func (t *Task) Run(ctx context.Context, session Session, emit func(Event) error) ([]message.Message, error) {
+	if t.Model == nil {
 		return nil, ErrNoModel
 	}
 
-	tools := indexTools(a.Tools)
+	history, err := session.Messages(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("session: failed to get messages: %w", err)
+	}
+
+	indexed := indexTools(t.Tools)
 	local := append([]message.Message(nil), history...)
 	var added []message.Message
 
 	for {
-		assistant, finished, err := a.runModelTurn(ctx, local, tools.descriptions, emit)
+		assistant, finished, err := t.runModelTurn(ctx, local, indexed.descriptions, emit)
 		if err != nil {
 			return added, err
+		}
+
+		if err := session.Append(ctx, assistant); err != nil {
+			return added, fmt.Errorf("session: failed to append assistant message: %w", err)
 		}
 		local = append(local, assistant)
 		added = append(added, assistant)
@@ -70,9 +78,14 @@ func (a *Agent) Run(ctx context.Context, history []message.Message, emit func(Ev
 		}
 
 		for _, call := range assistant.ToolCalls {
-			result := runTool(ctx, tools.byName, call)
+			result := runTool(ctx, indexed.byName, call)
+
+			if err := session.Append(ctx, result); err != nil {
+				return added, fmt.Errorf("session: failed to append tool result: %w", err)
+			}
 			local = append(local, result)
 			added = append(added, result)
+
 			if emit != nil {
 				r := result.Clone()
 				if err := emit(Event{Type: EventToolResult, ToolResult: &r}); err != nil {
@@ -83,12 +96,12 @@ func (a *Agent) Run(ctx context.Context, history []message.Message, emit func(Ev
 	}
 }
 
-func (a *Agent) runModelTurn(ctx context.Context, history []message.Message, tools []tool.Description, emit func(Event) error) (message.Message, bool, error) {
+func (t *Task) runModelTurn(ctx context.Context, history []message.Message, tools []tool.Description, emit func(Event) error) (message.Message, bool, error) {
 	assistant := message.Message{Role: message.RoleAssistant}
 	var finished bool
 
 	req := model.Request{Messages: history, Tools: tools}
-	err := a.Model.Stream(ctx, req, func(ev model.Event) error {
+	err := t.Model.Stream(ctx, req, func(ev model.Event) error {
 		switch ev.Type {
 		case model.EventContentDelta:
 			assistant.Content += ev.Delta
@@ -97,7 +110,7 @@ func (a *Agent) runModelTurn(ctx context.Context, history []message.Message, too
 			}
 		case model.EventToolCall:
 			if ev.ToolCall == nil {
-				return errors.New("agent: nil tool call")
+				return errors.New("session: nil tool call")
 			}
 			call := ev.ToolCall.Clone()
 			if call.ID == "" {
@@ -113,7 +126,7 @@ func (a *Agent) runModelTurn(ctx context.Context, history []message.Message, too
 				finished = true
 			}
 		default:
-			return fmt.Errorf("agent: unknown model event type %q", ev.Type)
+			return fmt.Errorf("session: unknown model event type %q", ev.Type)
 		}
 		return nil
 	})

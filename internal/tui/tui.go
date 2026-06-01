@@ -9,9 +9,10 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/verils/caigo/internal/agent"
 	"github.com/verils/caigo/internal/message"
+	"github.com/verils/caigo/internal/model"
 	"github.com/verils/caigo/internal/session"
+	"github.com/verils/caigo/internal/tool"
 )
 
 // EntryKind identifies the type of conversation entry.
@@ -38,7 +39,8 @@ type ContextEstimator interface {
 
 // Config holds TUI creation parameters.
 type Config struct {
-	Agent             *agent.Agent
+	Model             model.Model
+	Tools             []tool.Tool
 	Session           session.Session
 	ModelName         string
 	ContextWindowSize int              // 0 = hide denominator
@@ -52,19 +54,20 @@ type Model struct {
 	input        textinput.Model
 	ready        bool
 
-	ag            *agent.Agent
+	model         model.Model
+	tools         []tool.Tool
 	sess          session.Session
 	modelName     string
 	ctxWindowSize int
 	ctxEstimator  ContextEstimator
 
-	busy      bool   // agent is running
+	busy      bool   // task is running
 	streamBuf string // current assistant message being streamed
 	thinkBuf  string // current thinking block being streamed
 	width     int
 	height    int
 
-	eventCh chan tea.Msg // channel for agent events
+	eventCh chan tea.Msg // channel for task events
 }
 
 // New creates a TUI model from the given config.
@@ -76,7 +79,8 @@ func New(cfg Config) Model {
 	ti.Width = 80
 
 	return Model{
-		ag:            cfg.Agent,
+		model:         cfg.Model,
+		tools:         cfg.Tools,
 		sess:          cfg.Session,
 		modelName:     cfg.ModelName,
 		ctxWindowSize: cfg.ContextWindowSize,
@@ -133,7 +137,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.streamBuf = ""
 			m.thinkBuf = ""
 			m.syncViewport()
-			return m, m.runAgent(text)
+			return m, m.runTask(text)
 		}
 
 	case agentDeltaMsg:
@@ -344,11 +348,11 @@ type agentToolResultMsg struct {
 
 type agentDoneMsg struct{}
 
-// runAgent launches the agent in a background goroutine and returns a tea.Cmd
+// runTask launches the task in a background goroutine and returns a tea.Cmd
 // that blocks on the event channel until the first event arrives.
-func (m Model) runAgent(input string) tea.Cmd {
+func (m Model) runTask(input string) tea.Cmd {
 	ch := m.eventCh
-	ag := m.ag
+	task := session.NewTask(m.model, m.tools)
 	sess := m.sess
 	go func() {
 		defer close(ch)
@@ -358,22 +362,17 @@ func (m Model) runAgent(input string) tea.Cmd {
 			ch <- agentDeltaMsg{err: err}
 			return
 		}
-		history, err := sess.Messages(ctx)
-		if err != nil {
-			ch <- agentDeltaMsg{err: err}
-			return
-		}
 
-		added, err := ag.Run(ctx, history, func(ev agent.Event) error {
+		_, err := task.Run(ctx, sess, func(ev session.Event) error {
 			switch ev.Type {
-			case agent.EventContentDelta:
+			case session.EventContentDelta:
 				ch <- agentDeltaMsg{text: ev.Delta}
-			case agent.EventToolCall:
+			case session.EventToolCall:
 				if ev.ToolCall != nil {
 					tc := ev.ToolCall
 					ch <- agentToolCallMsg{text: fmt.Sprintf("%s(%s)", tc.Name, tc.Input)}
 				}
-			case agent.EventToolResult:
+			case session.EventToolResult:
 				if ev.ToolResult != nil {
 					ch <- agentToolResultMsg{text: ev.ToolResult.Content}
 				}
@@ -383,12 +382,6 @@ func (m Model) runAgent(input string) tea.Cmd {
 		if err != nil {
 			ch <- agentDeltaMsg{err: err}
 			return
-		}
-		for _, msg := range added {
-			if err := sess.Append(ctx, msg); err != nil {
-				ch <- agentDeltaMsg{err: err}
-				return
-			}
 		}
 	}()
 	return func() tea.Msg {
