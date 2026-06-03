@@ -93,7 +93,7 @@ func New(cfg Config) Model {
 // Run starts the TUI event loop.
 func Run(cfg Config) error {
 	m := New(cfg)
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion())
 	_, err := p.Run()
 	return err
 }
