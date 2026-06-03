@@ -183,13 +183,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Always forward events to viewport for scrolling support.
+	var vpCmd tea.Cmd
+	m.vp, vpCmd = m.vp.Update(msg)
+
 	if !m.busy {
-		var cmd tea.Cmd
-		m.input, cmd = m.input.Update(msg)
-		return m, cmd
+		var inputCmd tea.Cmd
+		m.input, inputCmd = m.input.Update(msg)
+		return m, tea.Batch(vpCmd, inputCmd)
 	}
 
-	return m, nil
+	return m, vpCmd
 }
 
 func (m Model) View() string {
@@ -282,27 +286,35 @@ func (m Model) renderEntry(b *strings.Builder, e Entry) {
 		innerW = 10
 	}
 
+	var prefix string
+	var style lipgloss.Style
 	switch e.Kind {
 	case EntryUser:
-		prefix := styleUser.Render("  > ")
-		text := styleUser.Width(innerW).Render(e.Content)
-		fmt.Fprintln(b, prefix+text)
+		prefix = "  > "
+		style = styleUser
 	case EntryAssistant:
-		prefix := styleAssistant.Render("    ")
-		text := styleAssistant.Width(innerW).Render(e.Content)
-		fmt.Fprintln(b, prefix+text)
+		prefix = "    "
+		style = styleAssistant
 	case EntryThinking:
-		prefix := styleThinking.Render("  💭 ")
-		text := styleThinking.Width(innerW).Render(e.Content)
-		fmt.Fprintln(b, prefix+text)
+		prefix = "  💭 "
+		style = styleThinking
 	case EntryToolCall:
-		prefix := styleToolCall.Render("  🔧 ")
-		text := styleToolCall.Width(innerW).Render(e.Content)
-		fmt.Fprintln(b, prefix+text)
+		prefix = "  🔧 "
+		style = styleToolCall
 	case EntryToolResult:
-		prefix := styleToolResult.Render("  📄 ")
-		text := styleToolResult.Width(innerW).Render(e.Content)
-		fmt.Fprintln(b, prefix+text)
+		prefix = "  📄 "
+		style = styleToolResult
+	default:
+		return
+	}
+
+	lines := strings.Split(e.Content, "\n")
+	for i, line := range lines {
+		if i == 0 {
+			fmt.Fprintln(b, style.Render(prefix)+style.Width(innerW).Render(line))
+		} else {
+			fmt.Fprintln(b, style.Render("    ")+style.Width(innerW).Render(line))
+		}
 	}
 	fmt.Fprintln(b)
 }
