@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -67,7 +68,11 @@ type Model struct {
 	width     int
 	height    int
 
-	eventCh chan tea.Msg // channel for task events
+	cancelTask     context.CancelFunc // cancel current task
+	eventCh        chan tea.Msg       // channel for task events
+	lastQuitTime   time.Time          // last quit key press time
+	quitHint       string             // quit hint message to display
+	quitHintExpiry time.Time          // when to clear the quit hint
 }
 
 // New creates a TUI model from the given config.
@@ -124,8 +129,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c":
-			return m, tea.Quit
+		case "ctrl+c", "ctrl+d":
+			if m.busy {
+				m.cancelCurrentTask()
+				return m, nil
+			}
+			now := time.Now()
+			if now.Sub(m.lastQuitTime) < 3*time.Second {
+				return m, tea.Quit
+			}
+			m.lastQuitTime = now
+			m.quitHint = "Press Ctrl+C again to quit"
+			m.quitHintExpiry = now.Add(3 * time.Second)
+			return m, m.tickHintClear()
+		case "esc":
+			if m.busy {
+				m.cancelCurrentTask()
+			}
+			return m, nil
 		case "enter":
 			text := strings.TrimSpace(m.input.Value())
 			if text == "" || m.busy {
@@ -142,7 +163,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case agentDeltaMsg:
 		if msg.err != nil {
-			m.conversation = append(m.conversation, Entry{Kind: EntryAssistant, Content: "Error: " + msg.err.Error()})
+			if msg.err != context.Canceled {
+				m.conversation = append(m.conversation, Entry{Kind: EntryAssistant, Content: "Error: " + msg.err.Error()})
+			}
 			m.busy = false
 			m.streamBuf = ""
 			m.thinkBuf = ""
@@ -180,6 +203,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.flushThinkBuf()
 		m.busy = false
 		m.syncViewport()
+		return m, nil
+
+	case tickMsg:
+		if time.Now().After(m.quitHintExpiry) {
+			m.quitHint = ""
+		}
 		return m, nil
 	}
 
@@ -226,6 +255,18 @@ func (m *Model) flushThinkBuf() {
 		m.conversation = append(m.conversation, Entry{Kind: EntryThinking, Content: m.thinkBuf})
 		m.thinkBuf = ""
 	}
+}
+
+func (m *Model) cancelCurrentTask() {
+	if m.cancelTask != nil {
+		m.cancelTask()
+		m.cancelTask = nil
+	}
+	m.flushStreamBuf()
+	m.flushThinkBuf()
+	m.busy = false
+	m.conversation = append(m.conversation, Entry{Kind: EntryAssistant, Content: "[Task cancelled]"})
+	m.syncViewport()
 }
 
 // --- rendering ---
@@ -329,6 +370,9 @@ func (m Model) renderStatusBar() string {
 			bar += fmt.Sprintf("· used %d tokens ", used)
 		}
 	}
+	if m.quitHint != "" && time.Now().Before(m.quitHintExpiry) {
+		bar += "· " + m.quitHint + " "
+	}
 	return styleStatus.Width(m.width).Render(bar)
 }
 
@@ -340,6 +384,8 @@ func (m Model) renderInput() string {
 }
 
 // --- agent bridge ---
+
+type tickMsg struct{}
 
 type agentDeltaMsg struct {
 	text string
@@ -362,20 +408,27 @@ type agentDoneMsg struct{}
 
 // runTask launches the task in a background goroutine and returns a tea.Cmd
 // that blocks on the event channel until the first event arrives.
-func (m Model) runTask(input string) tea.Cmd {
+func (m *Model) runTask(input string) tea.Cmd {
 	ch := m.eventCh
 	task := session.NewTask(m.model, m.tools)
 	sess := m.sess
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancelTask = cancel
+
 	go func() {
 		defer close(ch)
 
-		ctx := context.Background()
 		if err := sess.Append(ctx, message.User(input)); err != nil {
 			ch <- agentDeltaMsg{err: err}
 			return
 		}
 
 		_, err := task.Run(ctx, sess, func(ev session.Event) error {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
 			switch ev.Type {
 			case session.EventContentDelta:
 				ch <- agentDeltaMsg{text: ev.Delta}
@@ -415,4 +468,15 @@ func (m Model) nextEvent() tea.Cmd {
 		}
 		return msg
 	}
+}
+
+// tickHintClear returns a tea.Cmd that clears the quit hint after expiry.
+func (m Model) tickHintClear() tea.Cmd {
+	delay := time.Until(m.quitHintExpiry)
+	if delay <= 0 {
+		delay = 2 * time.Second
+	}
+	return tea.Tick(delay, func(t time.Time) tea.Msg {
+		return tickMsg{}
+	})
 }
