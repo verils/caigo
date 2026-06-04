@@ -77,10 +77,14 @@ type Model struct {
 // New creates a TUI model from the given config.
 func New(cfg Config) Model {
 	ti := textinput.New()
-	ti.Placeholder = "Type a message..."
+	ti.Prompt = "  > "
+	ti.Placeholder = "" // We render placeholder ourselves for full background coverage
 	ti.Focus()
 	ti.CharLimit = 0
 	ti.Width = 80
+	inputBg := lipgloss.Color("236")
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true).Background(inputBg)
+	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Background(inputBg)
 
 	return Model{
 		model:         cfg.Model,
@@ -113,15 +117,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.input.Width = msg.Width - 4 // prompt "  > "
+		fixedH := m.inputHeight() + 4 // top-border + input + bottom-border + status + hint
+		vpH := msg.Height - fixedH
+		if vpH < 1 {
+			vpH = 1
+		}
 		if !m.ready {
-			m.vp = viewport.New(msg.Width, msg.Height-3)
+			m.vp = viewport.New(msg.Width, vpH)
 			m.vp.SetContent(m.renderConversation())
-			m.input.Width = msg.Width - 4
 			m.ready = true
 		} else {
 			m.vp.Width = msg.Width
-			m.vp.Height = msg.Height - 3
-			m.input.Width = msg.Width - 4
+			m.vp.Height = vpH
 			m.vp.SetContent(m.renderConversation())
 		}
 		return m, nil
@@ -234,10 +242,21 @@ func (m Model) View() string {
 	if !m.ready {
 		return "Initializing..."
 	}
+	// Layout: viewport | top-border | input | bottom-border | status | hint
+	inputH := m.inputHeight()
+	fixedH := inputH + 4 // top-border(1) + input(N) + bottom-border(1) + status(1) + hint(1)
+	vpH := m.height - fixedH
+	if vpH < 1 {
+		vpH = 1
+	}
+	m.vp.Height = vpH
 	return lipgloss.JoinVertical(lipgloss.Left,
 		m.vp.View(),
+		m.renderInputBorder(true),
 		m.renderInput(),
+		m.renderInputBorder(false),
 		m.renderStatusBar(),
+		m.renderHint(),
 	)
 }
 
@@ -279,42 +298,28 @@ func (m *Model) cancelCurrentTask() {
 var (
 	styleUser = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("39")).
-			Bold(true).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("39")).
-			Padding(0, 1)
+			Bold(true)
 
 	styleAssistant = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("252")).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("245")).
-			Padding(0, 1)
+			Foreground(lipgloss.Color("252"))
 
 	styleThinking = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("243")).
-			Italic(true).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("240")).
-			Padding(0, 1)
+			Italic(true)
 
 	styleToolCall = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("214")).
-			Bold(true).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("214")).
-			Padding(0, 1)
+			Bold(true)
 
 	styleStatus = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("15")).
-			Background(lipgloss.Color("236")).
+			Foreground(lipgloss.Color("245")).
 			Padding(0, 1)
-
-	styleInputPrompt = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("39")).
-				Bold(true)
 
 	styleSpinner = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("243"))
+
+	separator = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240"))
 )
 
 func (m Model) renderConversation() string {
@@ -336,49 +341,116 @@ func (m Model) renderEntry(b *strings.Builder, e Entry) {
 	if w <= 0 {
 		w = 80
 	}
-	// Card width: terminal width minus outer margins (4 chars each side)
-	cardW := w - 8
-	if cardW < 20 {
-		cardW = 20
-	}
 
-	var card string
+	var prefix, text string
+	var style lipgloss.Style
 	switch e.Kind {
 	case EntryUser:
-		card = styleUser.Width(cardW).Render(e.Content)
+		prefix, style = "  > ", styleUser
+		text = e.Content
 	case EntryAssistant:
-		card = styleAssistant.Width(cardW).Render(e.Content)
+		prefix, style = "    ", styleAssistant
+		text = e.Content
 	case EntryThinking:
-		card = styleThinking.Width(cardW).Render("💭 " + e.Content)
+		prefix, style = "  💭 ", styleThinking
+		text = e.Content
 	case EntryToolCall:
-		card = styleToolCall.Width(cardW).Render("🔧 " + e.Content)
+		prefix, style = "  🔧 ", styleToolCall
+		text = e.Content
 	}
-	// Indent card from left edge
-	fmt.Fprintln(b, "    "+card)
-	fmt.Fprintln(b)
+
+	innerW := w - 4
+	if innerW < 10 {
+		innerW = 10
+	}
+	fmt.Fprintln(b, style.Render(prefix)+style.Width(innerW).Render(text))
+	fmt.Fprintln(b, separator.Render(strings.Repeat("─", w-4)))
 }
 
 func (m Model) renderStatusBar() string {
-	bar := " " + m.modelName + " "
+	bar := " " + m.modelName
+	if m.ctxWindowSize > 0 {
+		bar += " · " + formatContextSize(m.ctxWindowSize) + " Context"
+	}
 	if m.ctxEstimator != nil {
 		used := m.ctxEstimator.ContextTokens()
 		if m.ctxWindowSize > 0 {
-			bar += fmt.Sprintf("· used %d / %d tokens ", used, m.ctxWindowSize)
+			pct := used * 100 / m.ctxWindowSize
+			bar += fmt.Sprintf(" · Used %d%% context", pct)
 		} else {
-			bar += fmt.Sprintf("· used %d tokens ", used)
+			bar += fmt.Sprintf(" · Used %d tokens", used)
 		}
 	}
-	if m.quitHint != "" && time.Now().Before(m.quitHintExpiry) {
-		bar += "· " + m.quitHint + " "
-	}
+	bar += " "
 	return styleStatus.Width(m.width).Render(bar)
 }
 
-func (m Model) renderInput() string {
-	if m.busy {
-		return styleSpinner.Width(m.width).Render("  ⏳ Waiting for response...")
+func (m Model) renderHint() string {
+	if m.quitHint != "" && time.Now().Before(m.quitHintExpiry) {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Width(m.width).Render("  " + m.quitHint)
 	}
-	return styleInputPrompt.Render("  > ") + m.input.View()
+	return lipgloss.NewStyle().Width(m.width).Render("")
+}
+
+// renderInputBorder renders a gradient border line using half-block characters.
+// Top border ▀: upper half = term bg (ANSI 0), lower half = input bg (236).
+// Bottom border ▄: upper half = input bg (236), lower half = term bg (ANSI 0).
+func (m Model) renderInputBorder(top bool) string {
+	termBg := lipgloss.Color("0")
+	inputBg := lipgloss.Color("236")
+	w := m.width
+	if w < 1 {
+		w = 1
+	}
+	style := lipgloss.NewStyle().Foreground(termBg).Background(inputBg).Width(w)
+	if top {
+		return style.Render(strings.Repeat("▀", w))
+	}
+	return style.Render(strings.Repeat("▄", w))
+}
+
+func formatContextSize(tokens int) string {
+	switch {
+	case tokens >= 1_000_000:
+		return fmt.Sprintf("%.0fM", float64(tokens)/1_000_000)
+	case tokens >= 1_000:
+		return fmt.Sprintf("%.0fK", float64(tokens)/1_000)
+	default:
+		return fmt.Sprintf("%d", tokens)
+	}
+}
+
+func (m Model) inputHeight() int {
+	if m.busy {
+		return 1
+	}
+	lines := lipgloss.Height(m.input.View())
+	if lines < 1 {
+		lines = 1
+	}
+	return lines
+}
+
+func (m Model) renderInput() string {
+	inputBg := lipgloss.Color("236")
+	if m.busy {
+		return lipgloss.NewStyle().Background(inputBg).Width(m.width).Render(
+			styleSpinner.Render("  ⏳ Waiting for response..."))
+	}
+	if m.input.Value() == "" {
+		// Render placeholder ourselves — textinput's placeholder uses
+		// unstyled strings.Repeat(" ", n) for padding which shows as black.
+		prompt := lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true).Background(inputBg).Render("  > ")
+		ph := lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Background(inputBg).Render("Type a message...")
+		cursor := lipgloss.NewStyle().Background(inputBg).Foreground(lipgloss.Color("39")).Render("▎")
+		padW := m.width - lipgloss.Width(prompt+ph+cursor)
+		if padW < 0 {
+			padW = 0
+		}
+		pad := lipgloss.NewStyle().Background(inputBg).Width(padW).Render("")
+		return prompt + ph + cursor + pad
+	}
+	return m.input.View()
 }
 
 // --- agent bridge ---
