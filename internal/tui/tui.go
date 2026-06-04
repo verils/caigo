@@ -20,11 +20,10 @@ import (
 type EntryKind int
 
 const (
-	EntryUser       EntryKind = iota // user input
-	EntryAssistant                   // AI response text
-	EntryThinking                    // AI reasoning / chain-of-thought
-	EntryToolCall                    // tool invocation
-	EntryToolResult                  // tool output
+	EntryUser      EntryKind = iota // user input
+	EntryAssistant                  // AI response text
+	EntryThinking                   // AI reasoning / chain-of-thought
+	EntryToolCall                   // tool invocation
 )
 
 // Entry is a single item in the conversation history.
@@ -194,7 +193,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.nextEvent()
 
 	case agentToolResultMsg:
-		m.conversation = append(m.conversation, Entry{Kind: EntryToolResult, Content: msg.text})
+		// Mark the last tool call as completed
+		for i := len(m.conversation) - 1; i >= 0; i-- {
+			if m.conversation[i].Kind == EntryToolCall {
+				m.conversation[i].Content += " ✓"
+				break
+			}
+		}
 		m.syncViewport()
 		return m, m.nextEvent()
 
@@ -274,21 +279,30 @@ func (m *Model) cancelCurrentTask() {
 var (
 	styleUser = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("39")).
-			Bold(true)
+			Bold(true).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("39")).
+			Padding(0, 1)
 
 	styleAssistant = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("252"))
+			Foreground(lipgloss.Color("252")).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("245")).
+			Padding(0, 1)
 
 	styleThinking = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("243")).
-			Italic(true)
+			Italic(true).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("240")).
+			Padding(0, 1)
 
 	styleToolCall = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("214")).
-			Bold(true)
-
-	styleToolResult = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("245"))
+			Bold(true).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("214")).
+			Padding(0, 1)
 
 	styleStatus = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("15")).
@@ -322,41 +336,25 @@ func (m Model) renderEntry(b *strings.Builder, e Entry) {
 	if w <= 0 {
 		w = 80
 	}
-	innerW := w - 4
-	if innerW < 10 {
-		innerW = 10
+	// Card width: terminal width minus outer margins (4 chars each side)
+	cardW := w - 8
+	if cardW < 20 {
+		cardW = 20
 	}
 
-	var prefix string
-	var style lipgloss.Style
+	var card string
 	switch e.Kind {
 	case EntryUser:
-		prefix = "  > "
-		style = styleUser
+		card = styleUser.Width(cardW).Render(e.Content)
 	case EntryAssistant:
-		prefix = "    "
-		style = styleAssistant
+		card = styleAssistant.Width(cardW).Render(e.Content)
 	case EntryThinking:
-		prefix = "  💭 "
-		style = styleThinking
+		card = styleThinking.Width(cardW).Render("💭 " + e.Content)
 	case EntryToolCall:
-		prefix = "  🔧 "
-		style = styleToolCall
-	case EntryToolResult:
-		prefix = "  📄 "
-		style = styleToolResult
-	default:
-		return
+		card = styleToolCall.Width(cardW).Render("🔧 " + e.Content)
 	}
-
-	lines := strings.Split(e.Content, "\n")
-	for i, line := range lines {
-		if i == 0 {
-			fmt.Fprintln(b, style.Render(prefix)+style.Width(innerW).Render(line))
-		} else {
-			fmt.Fprintln(b, style.Render("    ")+style.Width(innerW).Render(line))
-		}
-	}
+	// Indent card from left edge
+	fmt.Fprintln(b, "    "+card)
 	fmt.Fprintln(b)
 }
 
@@ -400,9 +398,7 @@ type agentToolCallMsg struct {
 	text string
 }
 
-type agentToolResultMsg struct {
-	text string
-}
+type agentToolResultMsg struct{}
 
 type agentDoneMsg struct{}
 
@@ -438,9 +434,7 @@ func (m *Model) runTask(input string) tea.Cmd {
 					ch <- agentToolCallMsg{text: fmt.Sprintf("%s(%s)", tc.Name, tc.Input)}
 				}
 			case session.EventToolResult:
-				if ev.ToolResult != nil {
-					ch <- agentToolResultMsg{text: ev.ToolResult.Content}
-				}
+				ch <- agentToolResultMsg{}
 			}
 			return nil
 		})
