@@ -101,7 +101,7 @@ func New(cfg Config) Model {
 // Run starts the TUI event loop.
 func Run(cfg Config) error {
 	m := New(cfg)
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion())
+	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }
@@ -441,14 +441,14 @@ func (m Model) renderInput() string {
 		// Render placeholder ourselves — textinput's placeholder uses
 		// unstyled strings.Repeat(" ", n) for padding which shows as black.
 		prompt := lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true).Background(inputBg).Render("  > ")
+		cursor := lipgloss.NewStyle().Background(inputBg).Foreground(lipgloss.Color("252")).Render("▌")
 		ph := lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Background(inputBg).Render("Type a message...")
-		cursor := lipgloss.NewStyle().Background(inputBg).Foreground(lipgloss.Color("39")).Render("▎")
-		padW := m.width - lipgloss.Width(prompt+ph+cursor)
+		padW := m.width - lipgloss.Width(prompt+cursor+ph)
 		if padW < 0 {
 			padW = 0
 		}
 		pad := lipgloss.NewStyle().Background(inputBg).Width(padW).Render("")
-		return prompt + ph + cursor + pad
+		return prompt + cursor + ph + pad
 	}
 	return m.input.View()
 }
@@ -477,7 +477,9 @@ type agentDoneMsg struct{}
 // runTask launches the task in a background goroutine and returns a tea.Cmd
 // that blocks on the event channel until the first event arrives.
 func (m *Model) runTask(input string) tea.Cmd {
-	ch := m.eventCh
+	// Each task gets its own channel; previous channel (if any) is abandoned.
+	ch := make(chan tea.Msg, 100)
+	m.eventCh = ch
 	task := session.NewTask(m.model, m.tools)
 	sess := m.sess
 	ctx, cancel := context.WithCancel(context.Background())
