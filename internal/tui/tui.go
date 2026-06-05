@@ -78,12 +78,12 @@ type Model struct {
 // New creates a TUI model from the given config.
 func New(cfg Config) Model {
 	ti := textinput.New()
-	ti.Prompt = "  > "
+	ti.Prompt = " > "
 	ti.Placeholder = "" // We render placeholder ourselves for full background coverage
 	ti.Focus()
 	ti.CharLimit = 0
 	ti.Width = 80
-	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#4682FA")).Bold(true)
 	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 
 	return Model{
@@ -306,7 +306,7 @@ func (m *Model) cancelCurrentTask() {
 
 var (
 	styleUser = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("39")).
+			Foreground(lipgloss.Color("#4682FA")).
 			Bold(true)
 
 	styleAssistant = lipgloss.NewStyle().
@@ -378,27 +378,29 @@ func (m Model) renderEntry(b *strings.Builder, e Entry) {
 
 func (m Model) renderHeader() string {
 	headerFg := lipgloss.Color("252")
-	accentFg := lipgloss.Color("39")
+	logoFg := lipgloss.Color("#4682FA")
 
 	// ASCII art for "Cai" (5x5 per character)
 	art := []string{
-		"                                 ",
-		"  ████████  █████████  ████████  ",
-		"  ██        ██     ██     ██     ",
-		"  ██        █████████     ██     ",
-		"  ██        ██     ██     ██     ",
-		"  ████████  ██     ██  ████████  ",
-		"                                 ",
+		"                                     ",
+		"    ████████  █████████  ████████    ",
+		"    ██        ██     ██     ██       ",
+		"    ██        █████████     ██       ",
+		"    ██        ██     ██     ██       ",
+		"    ████████  ██     ██  ████████    ",
+		"                                     ",
 	}
 
 	// Right side info
 	info := []string{
+		"",
 		">_ Caigo v0.0.1",
+		"",
 		m.workDir(),
 	}
 
 	// Build lines
-	artStyle := lipgloss.NewStyle().Foreground(accentFg)
+	artStyle := lipgloss.NewStyle().Foreground(logoFg)
 	infoStyle := lipgloss.NewStyle().Foreground(headerFg)
 
 	var lines []string
@@ -461,7 +463,7 @@ func (m Model) renderInput() string {
 	if m.input.Value() == "" {
 		// Render placeholder ourselves — textinput's placeholder uses
 		// unstyled strings.Repeat(" ", n) for padding which shows as black.
-		prompt := lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true).Render("  > ")
+		prompt := lipgloss.NewStyle().Foreground(lipgloss.Color("#007D9C")).Bold(true).Render("  > ")
 		cursor := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Render("▌")
 		ph := lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render("Type a message...")
 		padW := m.width - lipgloss.Width(prompt+cursor+ph)
