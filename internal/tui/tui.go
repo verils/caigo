@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -82,9 +83,8 @@ func New(cfg Config) Model {
 	ti.Focus()
 	ti.CharLimit = 0
 	ti.Width = 80
-	inputBg := lipgloss.Color("236")
-	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true).Background(inputBg)
-	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Background(inputBg)
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 
 	return Model{
 		model:         cfg.Model,
@@ -118,18 +118,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.input.Width = msg.Width - 4 // prompt "  > "
-		fixedH := m.inputHeight() + 4 // top-border + input + bottom-border + status + hint
-		vpH := msg.Height - fixedH
-		if vpH < 1 {
-			vpH = 1
-		}
 		if !m.ready {
-			m.vp = viewport.New(msg.Width, vpH)
+			m.vp = viewport.New(msg.Width, 0)
 			m.vp.SetContent(m.renderConversation())
 			m.ready = true
 		} else {
 			m.vp.Width = msg.Width
-			m.vp.Height = vpH
 			m.vp.SetContent(m.renderConversation())
 		}
 		return m, nil
@@ -242,21 +236,36 @@ func (m Model) View() string {
 	if !m.ready {
 		return "Initializing..."
 	}
-	// Layout: viewport | top-border | input | bottom-border | status | hint
-	inputH := m.inputHeight()
-	fixedH := inputH + 4 // top-border(1) + input(N) + bottom-border(1) + status(1) + hint(1)
-	vpH := m.height - fixedH
-	if vpH < 1 {
-		vpH = 1
+
+	// Layout: header | [viewport] | input | hint
+	header := m.renderHeader()
+	input := m.renderInput()
+	hint := m.renderHint()
+
+	// Calculate remaining space for viewport
+	headerH := lipgloss.Height(header)
+	inputH := lipgloss.Height(input)
+	hintH := lipgloss.Height(hint)
+	vpH := m.height - headerH - inputH - hintH
+	if vpH < 0 {
+		vpH = 0
 	}
 	m.vp.Height = vpH
+
+	// Only show viewport if there's content
+	if len(m.conversation) == 0 && m.streamBuf == "" && m.thinkBuf == "" {
+		return lipgloss.JoinVertical(lipgloss.Left,
+			header,
+			input,
+			hint,
+		)
+	}
+
 	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
 		m.vp.View(),
-		m.renderInputBorder(true),
-		m.renderInput(),
-		m.renderInputBorder(false),
-		m.renderStatusBar(),
-		m.renderHint(),
+		input,
+		hint,
 	)
 }
 
@@ -367,22 +376,52 @@ func (m Model) renderEntry(b *strings.Builder, e Entry) {
 	fmt.Fprintln(b, separator.Render(strings.Repeat("─", w-4)))
 }
 
-func (m Model) renderStatusBar() string {
-	bar := " " + m.modelName
-	if m.ctxWindowSize > 0 {
-		bar += " · " + formatContextSize(m.ctxWindowSize) + " Context"
+func (m Model) renderHeader() string {
+	headerFg := lipgloss.Color("252")
+	accentFg := lipgloss.Color("39")
+
+	// ASCII art for "Cai" (5x5 per character)
+	art := []string{
+		"                                 ",
+		"  ████████  █████████  ████████  ",
+		"  ██        ██     ██     ██     ",
+		"  ██        █████████     ██     ",
+		"  ██        ██     ██     ██     ",
+		"  ████████  ██     ██  ████████  ",
+		"                                 ",
 	}
-	if m.ctxEstimator != nil {
-		used := m.ctxEstimator.ContextTokens()
-		if m.ctxWindowSize > 0 {
-			pct := used * 100 / m.ctxWindowSize
-			bar += fmt.Sprintf(" · Used %d%% context", pct)
-		} else {
-			bar += fmt.Sprintf(" · Used %d tokens", used)
+
+	// Right side info
+	info := []string{
+		">_ Caigo v0.0.1",
+		m.workDir(),
+	}
+
+	// Build lines
+	artStyle := lipgloss.NewStyle().Foreground(accentFg)
+	infoStyle := lipgloss.NewStyle().Foreground(headerFg)
+
+	var lines []string
+	for i := 0; i < len(art); i++ {
+		line := artStyle.Render(art[i])
+		// Show info on lines 1 and 2 (after first empty line)
+		if i >= 1 && i < 1+len(info) {
+			// Add padding between art and info
+			padding := 4
+			line += strings.Repeat(" ", padding) + infoStyle.Render(info[i-1])
 		}
+		lines = append(lines, line)
 	}
-	bar += " "
-	return styleStatus.Width(m.width).Render(bar)
+
+	return lipgloss.JoinVertical(lipgloss.Left, lines...)
+}
+
+func (m Model) workDir() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return dir
 }
 
 func (m Model) renderHint() string {
@@ -390,23 +429,6 @@ func (m Model) renderHint() string {
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Width(m.width).Render("  " + m.quitHint)
 	}
 	return lipgloss.NewStyle().Width(m.width).Render("")
-}
-
-// renderInputBorder renders a gradient border line using half-block characters.
-// Top border ▀: upper half = term bg (ANSI 0), lower half = input bg (236).
-// Bottom border ▄: upper half = input bg (236), lower half = term bg (ANSI 0).
-func (m Model) renderInputBorder(top bool) string {
-	termBg := lipgloss.Color("0")
-	inputBg := lipgloss.Color("236")
-	w := m.width
-	if w < 1 {
-		w = 1
-	}
-	style := lipgloss.NewStyle().Foreground(termBg).Background(inputBg).Width(w)
-	if top {
-		return style.Render(strings.Repeat("▀", w))
-	}
-	return style.Render(strings.Repeat("▄", w))
 }
 
 func formatContextSize(tokens int) string {
@@ -432,22 +454,21 @@ func (m Model) inputHeight() int {
 }
 
 func (m Model) renderInput() string {
-	inputBg := lipgloss.Color("236")
 	if m.busy {
-		return lipgloss.NewStyle().Background(inputBg).Width(m.width).Render(
+		return lipgloss.NewStyle().Width(m.width).Render(
 			styleSpinner.Render("  ⏳ Waiting for response..."))
 	}
 	if m.input.Value() == "" {
 		// Render placeholder ourselves — textinput's placeholder uses
 		// unstyled strings.Repeat(" ", n) for padding which shows as black.
-		prompt := lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true).Background(inputBg).Render("  > ")
-		cursor := lipgloss.NewStyle().Background(inputBg).Foreground(lipgloss.Color("252")).Render("▌")
-		ph := lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Background(inputBg).Render("Type a message...")
+		prompt := lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true).Render("  > ")
+		cursor := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Render("▌")
+		ph := lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render("Type a message...")
 		padW := m.width - lipgloss.Width(prompt+cursor+ph)
 		if padW < 0 {
 			padW = 0
 		}
-		pad := lipgloss.NewStyle().Background(inputBg).Width(padW).Render("")
+		pad := lipgloss.NewStyle().Width(padW).Render("")
 		return prompt + cursor + ph + pad
 	}
 	return m.input.View()
