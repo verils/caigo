@@ -11,6 +11,7 @@ import (
 var WriteFile = Func{
 	Desc: Description{
 		Name:        "write_file",
+		DisplayName: "WriteFile",
 		Description: "Write content to a file at the given path. Creates parent directories if needed.",
 		Input:       `{"type":"object","properties":{"path":{"type":"string","description":"Path to the file to write"},"content":{"type":"string","description":"Content to write to the file"}},"required":["path","content"]}`,
 	},

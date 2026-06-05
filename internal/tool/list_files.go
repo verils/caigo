@@ -12,6 +12,7 @@ import (
 var ListFiles = Func{
 	Desc: Description{
 		Name:        "list_files",
+		DisplayName: "ListFiles",
 		Description: "List files and directories at the given path. Returns a formatted list with type indicators.",
 		Input:       `{"type":"object","properties":{"path":{"type":"string","description":"Path to the directory to list"},"recursive":{"type":"boolean","description":"Whether to list files recursively (default: false)"}},"required":["path"]}`,
 	},

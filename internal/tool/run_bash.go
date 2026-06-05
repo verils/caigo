@@ -11,6 +11,7 @@ import (
 var RunBash = Func{
 	Desc: Description{
 		Name:        "run_bash",
+		DisplayName: "RunBash",
 		Description: "Execute a bash command and return its output.",
 		Input:       `{"type":"object","properties":{"command":{"type":"string","description":"Bash command to execute"}},"required":["command"]}`,
 	},

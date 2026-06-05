@@ -10,6 +10,7 @@ import (
 var ReadFile = Func{
 	Desc: Description{
 		Name:        "read_file",
+		DisplayName: "ReadFile",
 		Description: "Read the contents of a file at the given path.",
 		Input:       `{"type":"object","properties":{"path":{"type":"string","description":"Path to the file to read"}},"required":["path"]}`,
 	},

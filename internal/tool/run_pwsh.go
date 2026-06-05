@@ -11,6 +11,7 @@ import (
 var RunPwsh = Func{
 	Desc: Description{
 		Name:        "run_pwsh",
+		DisplayName: "RunPwsh",
 		Description: "Execute a PowerShell command and return its output.",
 		Input:       `{"type":"object","properties":{"command":{"type":"string","description":"PowerShell command to execute"}},"required":["command"]}`,
 	},

@@ -7,6 +7,7 @@ import (
 
 type Description struct {
 	Name        string
+	DisplayName string
 	Description string
 	Input       string
 }
