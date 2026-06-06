@@ -117,12 +117,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		if !m.ready {
-			m.vp.SetContent(m.renderConversation())
-			m.ready = true
-		} else {
-			m.vp.SetContent(m.renderConversation())
+
+		headerH := lipgloss.Height(m.renderHeader())
+		inputH := lipgloss.Height(m.renderInput())
+		hintH := lipgloss.Height(m.renderHint())
+		vpH := m.height - headerH - inputH - hintH
+		if vpH < 1 {
+			vpH = 1
 		}
+
+		m.vp.SetWidth(m.width)
+		m.vp.SetHeight(vpH)
+		m.vp.YPosition = headerH
+		m.vp.FillHeight = true
+		m.ready = true
+		m.syncViewport()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -235,16 +244,7 @@ func (m Model) View() tea.View {
 	input := m.renderInput()
 	hint := m.renderHint()
 
-	// Calculate remaining space for viewport
-	headerH := lipgloss.Height(header)
-	inputH := lipgloss.Height(input)
-	hintH := lipgloss.Height(hint)
-	vpH := m.height - headerH - inputH - hintH
-	if vpH < 0 {
-		vpH = 0
-	}
-
-	return tea.NewView(header + "\n" + input + "\n" + hint)
+	return tea.NewView(header + "\n" + m.vp.View() + "\n" + input + "\n" + hint)
 }
 
 // --- helpers ---
