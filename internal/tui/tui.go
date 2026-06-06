@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/verils/caigo/internal/message"
 	"github.com/verils/caigo/internal/model"
 	"github.com/verils/caigo/internal/session"
@@ -48,14 +48,14 @@ type Config struct {
 	ContextEstimator  ContextEstimator // nil = hide usage
 }
 
-// Model is the bubbletea model for the chat TUI.
+// Model is the bubbletea llm for the chat TUI.
 type Model struct {
 	conversation []Entry
 	vp           viewport.Model
 	input        textinput.Model
 	ready        bool
 
-	model         model.Model
+	llm           model.Model
 	tools         []tool.Tool
 	sess          session.Session
 	modelName     string
@@ -75,19 +75,15 @@ type Model struct {
 	quitHintExpiry time.Time          // when to clear the quit hint
 }
 
-// New creates a TUI model from the given config.
+// New creates a TUI llm from the given config.
 func New(cfg Config) Model {
 	ti := textinput.New()
 	ti.Prompt = "   > "
 	ti.Placeholder = "" // We render placeholder ourselves for full background coverage
 	ti.Focus()
 	ti.CharLimit = 0
-	ti.Width = 80
-	ti.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#4682FA")).Bold(true)
-	ti.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-
 	return Model{
-		model:         cfg.Model,
+		llm:           cfg.Model,
 		tools:         cfg.Tools,
 		sess:          cfg.Session,
 		modelName:     cfg.ModelName,
@@ -101,12 +97,12 @@ func New(cfg Config) Model {
 // Run starts the TUI event loop.
 func Run(cfg Config) error {
 	m := New(cfg)
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m)
 	_, err := p.Run()
 	return err
 }
 
-// --- tea.Model interface ---
+// --- bubbletea.Model interface ---
 
 func (m Model) Init() tea.Cmd {
 	return textinput.Blink
@@ -117,13 +113,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.input.Width = msg.Width - 4 // prompt "  > "
 		if !m.ready {
-			m.vp = viewport.New(msg.Width, 0)
 			m.vp.SetContent(m.renderConversation())
 			m.ready = true
 		} else {
-			m.vp.Width = msg.Width
 			m.vp.SetContent(m.renderConversation())
 		}
 		return m, nil
@@ -232,11 +225,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, vpCmd
 }
 
-func (m Model) View() string {
-	if !m.ready {
-		return "Initializing..."
-	}
-
+func (m Model) View() tea.View {
 	// Layout: header | [viewport] | input | hint
 	header := m.renderHeader()
 	input := m.renderInput()
@@ -250,23 +239,8 @@ func (m Model) View() string {
 	if vpH < 0 {
 		vpH = 0
 	}
-	m.vp.Height = vpH
 
-	// Only show viewport if there's content
-	if len(m.conversation) == 0 && m.streamBuf == "" && m.thinkBuf == "" {
-		return lipgloss.JoinVertical(lipgloss.Left,
-			header,
-			input,
-			hint,
-		)
-	}
-
-	return lipgloss.JoinVertical(lipgloss.Left,
-		header,
-		m.vp.View(),
-		input,
-		hint,
-	)
+	return tea.NewView(header + "\n" + input + "\n" + hint)
 }
 
 // --- helpers ---
@@ -377,37 +351,35 @@ func (m Model) renderEntry(b *strings.Builder, e Entry) {
 }
 
 func (m Model) renderHeader() string {
-	headerFg := lipgloss.Color("252")
-	logoFg := lipgloss.Color("#4682FA")
+	//headerFg := lipgloss.Color("252")
+	//logoFg := lipgloss.Color("#4682FA")
 
-	// ASCII art for "Cai" (5x5 per character)
-	art := []string{}
+	art := `
+ ██████╗  █████╗ ██╗ ██████╗  ██████╗
+██╔════╝ ██╔══██╗██║██╔════╝ ██╔═══██╗
+██║      ███████║██║██║  ███╗██║   ██║
+██║      ██╔══██║██║██║   ██║██║   ██║
+╚██████╗ ██║  ██║██║╚██████╔╝╚██████╔╝
+ ╚═════╝ ╚═╝  ╚═╝╚═╝ ╚═════╝  ╚═════╝
+     ░░░ Autonomous Agent v0.1.1 ░░░
+`
+
+	split := strings.Split(art, "\n")
+	lines := []string{}
+	for _, item := range split {
+		lines = append(lines, "  "+lipgloss.NewStyle().Foreground(lipgloss.Color("#4682FA")).Render(item))
+	}
+	header := strings.Join(lines, "\n")
 
 	// Right side info
-	info := []string{
-		"",
-		">_ Caigo v0.0.1",
-		"",
-		m.workDir(),
-	}
+	//info := []string{
+	//	"",
+	//	">_ Caigo v0.0.1",
+	//	"",
+	//	m.workDir(),
+	//}
 
-	// Build lines
-	artStyle := lipgloss.NewStyle().Foreground(logoFg)
-	infoStyle := lipgloss.NewStyle().Foreground(headerFg)
-
-	var lines []string
-	for i := 0; i < len(art); i++ {
-		line := artStyle.Render(art[i])
-		// Show info on lines 1 and 2 (after first empty line)
-		if i >= 1 && i < 1+len(info) {
-			// Add padding between art and info
-			padding := 4
-			line += strings.Repeat(" ", padding) + infoStyle.Render(info[i-1])
-		}
-		lines = append(lines, line)
-	}
-
-	return lipgloss.JoinVertical(lipgloss.Left, lines...)
+	return lipgloss.JoinVertical(lipgloss.Left, header)
 }
 
 func (m Model) workDir() string {
@@ -495,7 +467,7 @@ func (m *Model) runTask(input string) tea.Cmd {
 	// Each task gets its own channel; previous channel (if any) is abandoned.
 	ch := make(chan tea.Msg, 100)
 	m.eventCh = ch
-	task := session.NewTask(m.model, m.tools)
+	task := session.NewTask(m.llm, m.tools)
 	sess := m.sess
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancelTask = cancel
