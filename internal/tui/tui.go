@@ -17,6 +17,10 @@ import (
 	"github.com/verils/caigo/internal/tool"
 )
 
+var mainColor = lipgloss.Color("#4682FA")
+var logoColor = mainColor
+var inputBgColor = lipgloss.Color("236")
+
 // EntryKind identifies the type of conversation entry.
 type EntryKind int
 
@@ -351,34 +355,22 @@ func (m Model) renderEntry(b *strings.Builder, e Entry) {
 }
 
 func (m Model) renderHeader() string {
-	//headerFg := lipgloss.Color("252")
-	//logoFg := lipgloss.Color("#4682FA")
-
-	art := `
- ██████╗  █████╗ ██╗ ██████╗  ██████╗
-██╔════╝ ██╔══██╗██║██╔════╝ ██╔═══██╗
-██║      ███████║██║██║  ███╗██║   ██║
-██║      ██╔══██║██║██║   ██║██║   ██║
-╚██████╗ ██║  ██║██║╚██████╔╝╚██████╔╝
- ╚═════╝ ╚═╝  ╚═╝╚═╝ ╚═════╝  ╚═════╝
-     ░░░ Autonomous Agent v0.1.1 ░░░
-`
-
-	split := strings.Split(art, "\n")
-	lines := []string{}
-	for _, item := range split {
-		lines = append(lines, "  "+lipgloss.NewStyle().Foreground(lipgloss.Color("#4682FA")).Render(item))
+	art := []string{
+		"",
+		" ██████╗  █████╗ ██╗ ██████╗  ██████╗",
+		"██╔════╝ ██╔══██╗██║██╔════╝ ██╔═══██╗",
+		"██║      ███████║██║██║  ███╗██║   ██║",
+		"██║      ██╔══██║██║██║   ██║██║   ██║",
+		"╚██████╗ ██║  ██║██║╚██████╔╝╚██████╔╝",
+		" ╚═════╝ ╚═╝  ╚═╝╚═╝ ╚═════╝  ╚═════╝",
+		"     ░░░ Autonomous Agent v0.1.1 ░░░",
+		"",
+	}
+	var lines []string
+	for _, item := range art {
+		lines = append(lines, "  "+lipgloss.NewStyle().Foreground(logoColor).Render(item))
 	}
 	header := strings.Join(lines, "\n")
-
-	// Right side info
-	//info := []string{
-	//	"",
-	//	">_ Caigo v0.0.1",
-	//	"",
-	//	m.workDir(),
-	//}
-
 	return lipgloss.JoinVertical(lipgloss.Left, header)
 }
 
@@ -427,15 +419,37 @@ func (m Model) renderInput() string {
 	if m.input.Value() == "" {
 		// Render placeholder ourselves — textinput's placeholder uses
 		// unstyled strings.Repeat(" ", n) for padding which shows as black.
-		prompt := lipgloss.NewStyle().Foreground(lipgloss.Color("#007D9C")).Bold(true).Render("  > ")
-		cursor := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Render("▌")
-		ph := lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render("Type a message...")
+		prompt := lipgloss.NewStyle().Foreground(lipgloss.Color("#007D9C")).Background(inputBgColor).Bold(true).Render("  > ")
+		cursor := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Background(inputBgColor).Render("█")
+		ph := lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Background(inputBgColor).Render(" Type a message...")
 		padW := m.width - lipgloss.Width(prompt+cursor+ph)
 		if padW < 0 {
 			padW = 0
 		}
-		pad := lipgloss.NewStyle().Width(padW).Render("")
-		return prompt + cursor + ph + pad
+		pad := lipgloss.NewStyle().Background(inputBgColor).Width(padW).Render("")
+
+		input := prompt + cursor + ph + pad
+
+		var inputUpBorder string
+		for i := 0; i < m.width; i++ {
+			inputUpBorder += "▄"
+		}
+		inputUpBorder = lipgloss.NewStyle().
+			Foreground(inputBgColor).
+			Render(inputUpBorder)
+
+		var inputBottomBorder string
+		for i := 0; i < m.width; i++ {
+			inputBottomBorder += "▀"
+		}
+		inputBottomBorder = lipgloss.NewStyle().
+			Foreground(inputBgColor).
+			Render(inputBottomBorder)
+
+		return lipgloss.JoinVertical(lipgloss.Left,
+			inputUpBorder,
+			input,
+			inputBottomBorder)
 	}
 	return m.input.View()
 }
