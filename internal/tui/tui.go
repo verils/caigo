@@ -82,7 +82,7 @@ type Model struct {
 // New creates a TUI llm from the given config.
 func New(cfg Config) Model {
 	ti := textinput.New()
-	ti.Prompt = "   > "
+	ti.Prompt = "  > "
 	ti.Placeholder = "" // We render placeholder ourselves for full background coverage
 	ti.Focus()
 	ti.CharLimit = 0
@@ -419,7 +419,8 @@ func (m Model) renderInput() string {
 	if m.input.Value() == "" {
 		// Render placeholder ourselves — textinput's placeholder uses
 		// unstyled strings.Repeat(" ", n) for padding which shows as black.
-		prompt := lipgloss.NewStyle().Foreground(lipgloss.Color("#007D9C")).Background(inputBgColor).Bold(true).Render("  > ")
+		promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#007D9C")).Background(inputBgColor).Bold(true)
+		prompt := promptStyle.Render("  > ")
 		cursor := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Background(inputBgColor).Render("█")
 		ph := lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Background(inputBgColor).Render(" Type a message...")
 		padW := m.width - lipgloss.Width(prompt+cursor+ph)
@@ -427,31 +428,38 @@ func (m Model) renderInput() string {
 			padW = 0
 		}
 		pad := lipgloss.NewStyle().Background(inputBgColor).Width(padW).Render("")
-
-		input := prompt + cursor + ph + pad
-
-		var inputUpBorder string
-		for i := 0; i < m.width; i++ {
-			inputUpBorder += "▄"
-		}
-		inputUpBorder = lipgloss.NewStyle().
-			Foreground(inputBgColor).
-			Render(inputUpBorder)
-
-		var inputBottomBorder string
-		for i := 0; i < m.width; i++ {
-			inputBottomBorder += "▀"
-		}
-		inputBottomBorder = lipgloss.NewStyle().
-			Foreground(inputBgColor).
-			Render(inputBottomBorder)
-
-		return lipgloss.JoinVertical(lipgloss.Left,
-			inputUpBorder,
-			input,
-			inputBottomBorder)
+		return m.wrapInputBlock(prompt + cursor + ph + pad)
 	}
-	return m.input.View()
+	// Non-empty input: render textinput view, apply matching background,
+	// and pad each line to full width so the background fills uniformly.
+	// Supports multi-line input (textinput.View() may contain newlines).
+	bgStyle := lipgloss.NewStyle().Background(inputBgColor)
+	lines := strings.Split(m.input.View(), "\n")
+	for i, line := range lines {
+		padW := m.width - lipgloss.Width(line)
+		if padW < 0 {
+			padW = 0
+		}
+		lines[i] = bgStyle.Render(line) + bgStyle.Render(strings.Repeat(" ", padW))
+	}
+	return m.wrapInputBlock(strings.Join(lines, "\n"))
+}
+
+// wrapInputBlock wraps an input block (one or more lines) with the
+// top/bottom ▄/▀ borders in the input background color.
+func (m Model) wrapInputBlock(block string) string {
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+
+	upBorder := lipgloss.NewStyle().
+		Foreground(inputBgColor).
+		Render(strings.Repeat("▄", w))
+	downBorder := lipgloss.NewStyle().
+		Foreground(inputBgColor).
+		Render(strings.Repeat("▀", w))
+	return lipgloss.JoinVertical(lipgloss.Left, upBorder, block, downBorder)
 }
 
 // --- agent bridge ---
