@@ -78,7 +78,7 @@ type Model struct {
 // New creates a TUI model from the given config.
 func New(cfg Config) Model {
 	ti := textinput.New()
-	ti.Prompt = " > "
+	ti.Prompt = "   > "
 	ti.Placeholder = "" // We render placeholder ourselves for full background coverage
 	ti.Focus()
 	ti.CharLimit = 0
@@ -381,15 +381,7 @@ func (m Model) renderHeader() string {
 	logoFg := lipgloss.Color("#4682FA")
 
 	// ASCII art for "Cai" (5x5 per character)
-	art := []string{
-		"                                     ",
-		"    ████████  █████████  ████████    ",
-		"    ██        ██     ██     ██       ",
-		"    ██        █████████     ██       ",
-		"    ██        ██     ██     ██       ",
-		"    ████████  ██     ██  ████████    ",
-		"                                     ",
-	}
+	art := []string{}
 
 	// Right side info
 	info := []string{
