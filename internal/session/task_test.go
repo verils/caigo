@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/verils/caigo/internal/llm"
 	"github.com/verils/caigo/internal/message"
-	"github.com/verils/caigo/internal/model"
 	"github.com/verils/caigo/internal/tool"
 )
 
