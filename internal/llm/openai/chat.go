@@ -11,8 +11,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/verils/caigo/internal/llm"
 	"github.com/verils/caigo/internal/message"
-	"github.com/verils/caigo/internal/model"
 )
 
 const (
@@ -71,7 +71,7 @@ func (c *ChatCompletion) httpClient() *http.Client {
 	return c.client
 }
 
-func (c *ChatCompletion) Stream(ctx context.Context, req model.Request, emit func(model.Event) error) error {
+func (c *ChatCompletion) Stream(ctx context.Context, req llm.Request, emit func(llm.Event) error) error {
 	body, err := c.buildRequest(req)
 	if err != nil {
 		return fmt.Errorf("openai: build request: %w", err)
@@ -100,7 +100,7 @@ func (c *ChatCompletion) Stream(ctx context.Context, req model.Request, emit fun
 	return c.readStream(resp.Body, emit)
 }
 
-func (c *ChatCompletion) buildRequest(req model.Request) ([]byte, error) {
+func (c *ChatCompletion) buildRequest(req llm.Request) ([]byte, error) {
 	msgs := make([]chatMessage, 0, len(req.Messages))
 	for _, m := range req.Messages {
 		cm := chatMessage{Role: string(m.Role), Content: m.Content}
@@ -146,7 +146,7 @@ func (c *ChatCompletion) buildRequest(req model.Request) ([]byte, error) {
 	return json.Marshal(payload)
 }
 
-func (c *ChatCompletion) readStream(body io.Reader, emit func(model.Event) error) error {
+func (c *ChatCompletion) readStream(body io.Reader, emit func(llm.Event) error) error {
 	toolCallBuffers := map[int]*message.ToolCall{}
 
 	scanner := bufio.NewScanner(body)
@@ -171,7 +171,7 @@ func (c *ChatCompletion) readStream(body io.Reader, emit func(model.Event) error
 		choice := chunk.Choices[0]
 
 		if choice.FinishReason != "" {
-			if err := emit(model.Event{Type: model.EventFinish, FinishReason: choice.FinishReason}); err != nil {
+			if err := emit(llm.Event{Type: llm.EventFinish, FinishReason: choice.FinishReason}); err != nil {
 				return err
 			}
 		}
@@ -179,7 +179,7 @@ func (c *ChatCompletion) readStream(body io.Reader, emit func(model.Event) error
 		delta := choice.Delta
 
 		if delta.Content != "" {
-			if err := emit(model.Event{Type: model.EventContentDelta, Delta: delta.Content}); err != nil {
+			if err := emit(llm.Event{Type: llm.EventContentDelta, Delta: delta.Content}); err != nil {
 				return err
 			}
 		}
@@ -213,7 +213,7 @@ func (c *ChatCompletion) readStream(body io.Reader, emit func(model.Event) error
 		if tc == nil {
 			continue
 		}
-		if err := emit(model.Event{Type: model.EventToolCall, ToolCall: tc}); err != nil {
+		if err := emit(llm.Event{Type: llm.EventToolCall, ToolCall: tc}); err != nil {
 			return err
 		}
 	}

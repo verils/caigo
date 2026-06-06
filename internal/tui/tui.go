@@ -11,8 +11,8 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/verils/caigo/internal/llm"
 	"github.com/verils/caigo/internal/message"
-	"github.com/verils/caigo/internal/model"
 	"github.com/verils/caigo/internal/session"
 	"github.com/verils/caigo/internal/tool"
 )
@@ -44,7 +44,7 @@ type ContextEstimator interface {
 
 // Config holds TUI creation parameters.
 type Config struct {
-	Model             model.Model
+	Model             llm.Model
 	Tools             []tool.Tool
 	Session           session.Session
 	ModelName         string
@@ -59,7 +59,7 @@ type Model struct {
 	input        textinput.Model
 	ready        bool
 
-	llm           model.Model
+	llm           llm.Model
 	tools         []tool.Tool
 	sess          session.Session
 	modelName     string

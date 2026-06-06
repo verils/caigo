@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/verils/caigo/internal/config"
-	"github.com/verils/caigo/internal/model/openai"
+	"github.com/verils/caigo/internal/llm/openai"
 	"github.com/verils/caigo/internal/session"
 	"github.com/verils/caigo/internal/tool"
 	"github.com/verils/caigo/internal/tui"

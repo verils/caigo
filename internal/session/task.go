@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/verils/caigo/internal/llm"
 	"github.com/verils/caigo/internal/message"
-	"github.com/verils/caigo/internal/model"
 	"github.com/verils/caigo/internal/tool"
 )
 
@@ -29,11 +29,11 @@ type Event struct {
 }
 
 type Task struct {
-	Model model.Model
+	Model llm.Model
 	Tools []tool.Tool
 }
 
-func NewTask(m model.Model, tools []tool.Tool) *Task {
+func NewTask(m llm.Model, tools []tool.Tool) *Task {
 	return &Task{
 		Model: m,
 		Tools: tools,
@@ -100,15 +100,15 @@ func (t *Task) runModelTurn(ctx context.Context, history []message.Message, tool
 	assistant := message.Message{Role: message.RoleAssistant}
 	var finished bool
 
-	req := model.Request{Messages: history, Tools: tools}
-	err := t.Model.Stream(ctx, req, func(ev model.Event) error {
+	req := llm.Request{Messages: history, Tools: tools}
+	err := t.Model.Stream(ctx, req, func(ev llm.Event) error {
 		switch ev.Type {
-		case model.EventContentDelta:
+		case llm.EventContentDelta:
 			assistant.Content += ev.Delta
 			if emit != nil {
 				return emit(Event{Type: EventContentDelta, Delta: ev.Delta})
 			}
-		case model.EventToolCall:
+		case llm.EventToolCall:
 			if ev.ToolCall == nil {
 				return errors.New("session: nil tool call")
 			}
@@ -121,7 +121,7 @@ func (t *Task) runModelTurn(ctx context.Context, history []message.Message, tool
 				call := call
 				return emit(Event{Type: EventToolCall, ToolCall: &call})
 			}
-		case model.EventFinish:
+		case llm.EventFinish:
 			if ev.FinishReason == "stop" {
 				finished = true
 			}

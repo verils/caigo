@@ -90,7 +90,7 @@ type fakeModel struct {
 	calls int
 }
 
-func (m *fakeModel) Stream(ctx context.Context, req model.Request, emit func(model.Event) error) error {
+func (m *fakeModel) Stream(ctx context.Context, req llm.Request, emit func(llm.Event) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -107,11 +107,11 @@ func (m *fakeModel) Stream(ctx context.Context, req model.Request, emit func(mod
 		if len(req.Tools) != 1 || req.Tools[0].Name != "echo" {
 			return fmt.Errorf("first request tools = %#v", req.Tools)
 		}
-		if err := emit(model.Event{Type: model.EventContentDelta, Delta: "thinking..."}); err != nil {
+		if err := emit(llm.Event{Type: llm.EventContentDelta, Delta: "thinking..."}); err != nil {
 			return err
 		}
-		return emit(model.Event{
-			Type: model.EventToolCall,
+		return emit(llm.Event{
+			Type: llm.EventToolCall,
 			ToolCall: &message.ToolCall{
 				ID:    "call_echo",
 				Name:  "echo",
@@ -126,10 +126,10 @@ func (m *fakeModel) Stream(ctx context.Context, req model.Request, emit func(mod
 		if last.Role != message.RoleTool || last.ToolCallID != "call_echo" || last.Content != "echo:hello" {
 			return fmt.Errorf("second request last message = %#v", last)
 		}
-		if err := emit(model.Event{Type: model.EventContentDelta, Delta: "done: " + last.Content}); err != nil {
+		if err := emit(llm.Event{Type: llm.EventContentDelta, Delta: "done: " + last.Content}); err != nil {
 			return err
 		}
-		return emit(model.Event{Type: model.EventFinish, FinishReason: "stop"})
+		return emit(llm.Event{Type: llm.EventFinish, FinishReason: "stop"})
 	default:
 		return fmt.Errorf("unexpected model call %d", m.calls)
 	}
