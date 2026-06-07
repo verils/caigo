@@ -1,0 +1,78 @@
+version: "3"
+
+vars:
+  APP: caigo
+  ENTRY: ./cmd
+  BUILD_DIR: ./build
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+  COMMIT:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
+  BUILD_TIME:
+    sh: date -u +"%Y-%m-%dT%H:%M:%SZ"
+  LDFLAGS: >-
+    -s -w
+    -X main.version={{.VERSION}}
+    -X main.commit={{.COMMIT}}
+    -X main.buildTime={{.BUILD_TIME}}
+
+tasks:
+  build:
+    desc: Build binary to build/
+    sources:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - "{{.BUILD_DIR}}/{{.APP}}{{exeExt}}"
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.APP}}{{exeExt}} {{.ENTRY}}
+
+  run:
+    desc: Build and run
+    cmds:
+      - task: build
+      - "{{.BUILD_DIR}}/{{.APP}}{{exeExt}}"
+
+  install:
+    desc: Install to $GOPATH/bin
+    cmds:
+      - go install -ldflags "{{.LDFLAGS}}" {{.ENTRY}}
+
+  test:
+    desc: Run tests
+    cmds:
+      - go test -race -cover ./...
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - golangci-lint run ./...
+
+  fmt:
+    desc: Format code
+    cmds:
+      - gofmt -w -s .
+      - goimports -w .
+
+  tidy:
+    desc: Tidy go modules
+    cmds:
+      - go mod tidy
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - rm -rf {{.BUILD_DIR}}
+      - rm -f {{.APP}}{{exeExt}}
+
+  snapshot:
+    desc: Build snapshot release with GoReleaser
+    cmds:
+      - goreleaser release --snapshot --clean
+
+  default:
+    desc: Build by default
+    cmds:
+      - task: build
