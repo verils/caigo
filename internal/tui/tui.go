@@ -3,12 +3,10 @@ package tui
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/textinput"
-	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/verils/caigo/internal/llm"
@@ -55,9 +53,8 @@ type Config struct {
 // Model is the bubbletea llm for the chat TUI.
 type Model struct {
 	conversation []Entry
-	vp           viewport.Model
 	input        textinput.Model
-	ready        bool
+	printedIdx   int // number of conversation entries already printed via tea.Println
 
 	llm           llm.Model
 	tools         []tool.Tool
@@ -70,7 +67,6 @@ type Model struct {
 	streamBuf string // current assistant message being streamed
 	thinkBuf  string // current thinking block being streamed
 	width     int
-	height    int
 
 	cancelTask     context.CancelFunc // cancel current task
 	eventCh        chan tea.Msg       // channel for task events
@@ -109,29 +105,16 @@ func Run(cfg Config) error {
 // --- bubbletea.Model interface ---
 
 func (m Model) Init() tea.Cmd {
-	return textinput.Blink
+	return tea.Batch(
+		textinput.Blink,
+		tea.Println(m.renderHeader()),
+	)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
-		m.height = msg.Height
-
-		headerH := lipgloss.Height(m.renderHeader())
-		inputH := lipgloss.Height(m.renderInput())
-		hintH := lipgloss.Height(m.renderHint())
-		vpH := m.height - headerH - inputH - hintH
-		if vpH < 1 {
-			vpH = 1
-		}
-
-		m.vp.SetWidth(m.width)
-		m.vp.SetHeight(vpH)
-		m.vp.YPosition = headerH
-		m.vp.FillHeight = true
-		m.ready = true
-		m.syncViewport()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -139,7 +122,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c", "ctrl+d":
 			if m.busy {
 				m.cancelCurrentTask()
-				return m, nil
+				return m, m.printNewEntries()
 			}
 			now := time.Now()
 			if now.Sub(m.lastQuitTime) < 3*time.Second {
@@ -152,6 +135,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			if m.busy {
 				m.cancelCurrentTask()
+				return m, m.printNewEntries()
 			}
 			return m, nil
 		case "enter":
@@ -164,8 +148,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.busy = true
 			m.streamBuf = ""
 			m.thinkBuf = ""
-			m.syncViewport()
-			return m, m.runTask(text)
+			printCmd := m.printNewEntries()
+			taskCmd := m.runTask(text)
+			return m, tea.Batch(printCmd, taskCmd)
 		}
 
 	case agentDeltaMsg:
@@ -176,10 +161,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.busy = false
 			m.streamBuf = ""
 			m.thinkBuf = ""
-		} else {
-			m.streamBuf += msg.text
+			return m, tea.Batch(m.printNewEntries(), m.nextEvent())
 		}
-		m.syncViewport()
+		m.streamBuf += msg.text
 		return m, m.nextEvent()
 
 	case agentThinkingMsg:
@@ -191,14 +175,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.thinkBuf += msg.text
 		}
-		m.syncViewport()
 		return m, m.nextEvent()
 
 	case agentToolCallMsg:
 		m.flushStreamBuf()
 		m.conversation = append(m.conversation, Entry{Kind: EntryToolCall, Content: msg.text})
-		m.syncViewport()
-		return m, m.nextEvent()
+		return m, tea.Batch(m.printNewEntries(), m.nextEvent())
 
 	case agentToolResultMsg:
 		// Mark the last tool call as completed
@@ -208,15 +190,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
-		m.syncViewport()
 		return m, m.nextEvent()
 
 	case agentDoneMsg:
 		m.flushStreamBuf()
 		m.flushThinkBuf()
 		m.busy = false
-		m.syncViewport()
-		return m, nil
+		return m, m.printNewEntries()
 
 	case tickMsg:
 		if time.Now().After(m.quitHintExpiry) {
@@ -225,33 +205,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Always forward events to viewport for scrolling support.
-	var vpCmd tea.Cmd
-	m.vp, vpCmd = m.vp.Update(msg)
-
 	if !m.busy {
 		var inputCmd tea.Cmd
 		m.input, inputCmd = m.input.Update(msg)
-		return m, tea.Batch(vpCmd, inputCmd)
+		return m, inputCmd
 	}
 
-	return m, vpCmd
+	return m, nil
 }
 
 func (m Model) View() tea.View {
-	// Layout: header | [viewport] | input | hint
-	header := m.renderHeader()
-	input := m.renderInput()
-	hint := m.renderHint()
-
-	return tea.NewView(header + "\n" + m.vp.View() + "\n" + input + "\n" + hint)
+	return tea.NewView(m.renderInput() + "\n" + m.renderHint())
 }
 
 // --- helpers ---
 
-func (m *Model) syncViewport() {
-	m.vp.SetContent(m.renderConversation())
-	m.vp.GotoBottom()
+// printNewEntries returns a tea.Cmd that prints any conversation entries
+// that haven't been printed yet. Uses tea.Println which inserts unmanaged
+// lines above the frame, allowing terminal scrolling.
+func (m *Model) printNewEntries() tea.Cmd {
+	if m.printedIdx >= len(m.conversation) {
+		return nil
+	}
+	var b strings.Builder
+	for i := m.printedIdx; i < len(m.conversation); i++ {
+		m.renderEntry(&b, m.conversation[i])
+	}
+	m.printedIdx = len(m.conversation)
+	return tea.Println(b.String())
 }
 
 func (m *Model) flushStreamBuf() {
@@ -277,7 +258,6 @@ func (m *Model) cancelCurrentTask() {
 	m.flushThinkBuf()
 	m.busy = false
 	m.conversation = append(m.conversation, Entry{Kind: EntryAssistant, Content: "[Task cancelled]"})
-	m.syncViewport()
 }
 
 // --- rendering ---
@@ -298,30 +278,12 @@ var (
 			Foreground(lipgloss.Color("214")).
 			Bold(true)
 
-	styleStatus = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("245")).
-			Padding(0, 1)
-
 	styleSpinner = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("243"))
 
 	separator = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240"))
 )
-
-func (m Model) renderConversation() string {
-	var b strings.Builder
-	for _, e := range m.conversation {
-		m.renderEntry(&b, e)
-	}
-	if m.streamBuf != "" {
-		m.renderEntry(&b, Entry{Kind: EntryAssistant, Content: m.streamBuf + " ▌"})
-	}
-	if m.thinkBuf != "" {
-		m.renderEntry(&b, Entry{Kind: EntryThinking, Content: m.thinkBuf + " ..."})
-	}
-	return b.String()
-}
 
 func (m Model) renderEntry(b *strings.Builder, e Entry) {
 	w := m.width
@@ -374,41 +336,11 @@ func (m Model) renderHeader() string {
 	return lipgloss.JoinVertical(lipgloss.Left, header)
 }
 
-func (m Model) workDir() string {
-	dir, err := os.Getwd()
-	if err != nil {
-		return ""
-	}
-	return dir
-}
-
 func (m Model) renderHint() string {
 	if m.quitHint != "" && time.Now().Before(m.quitHintExpiry) {
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Width(m.width).Render("  " + m.quitHint)
 	}
 	return lipgloss.NewStyle().Width(m.width).Render("")
-}
-
-func formatContextSize(tokens int) string {
-	switch {
-	case tokens >= 1_000_000:
-		return fmt.Sprintf("%.0fM", float64(tokens)/1_000_000)
-	case tokens >= 1_000:
-		return fmt.Sprintf("%.0fK", float64(tokens)/1_000)
-	default:
-		return fmt.Sprintf("%d", tokens)
-	}
-}
-
-func (m Model) inputHeight() int {
-	if m.busy {
-		return 1
-	}
-	lines := lipgloss.Height(m.input.View())
-	if lines < 1 {
-		lines = 1
-	}
-	return lines
 }
 
 func (m Model) renderInput() string {
