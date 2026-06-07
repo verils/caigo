@@ -215,7 +215,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() tea.View {
-	return tea.NewView(m.renderInput() + "\n" + m.renderHint())
+	return tea.NewView(m.renderInput() + "\n" + m.renderStatusBar() + "\n" + m.renderHint())
 }
 
 // --- helpers ---
@@ -341,6 +341,51 @@ func (m Model) renderHint() string {
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Width(m.width).Render("  " + m.quitHint)
 	}
 	return lipgloss.NewStyle().Width(m.width).Render("")
+}
+
+func (m Model) renderStatusBar() string {
+	if m.width <= 0 {
+		return ""
+	}
+
+	// Model name
+	modelName := m.modelName
+	if modelName == "" {
+		modelName = "Unknown"
+	}
+
+	// Build status parts
+	parts := []string{modelName}
+
+	// Context window size
+	if m.ctxWindowSize > 0 {
+		parts = append(parts, fmt.Sprintf("%s Context", formatTokenCount(m.ctxWindowSize)))
+	}
+
+	// Context usage percentage
+	if m.ctxEstimator != nil && m.ctxWindowSize > 0 {
+		used := m.ctxEstimator.ContextTokens()
+		percent := float64(used) / float64(m.ctxWindowSize) * 100
+		parts = append(parts, fmt.Sprintf("Used %.1f%% context", percent))
+	}
+
+	statusText := strings.Join(parts, " · ")
+
+	style := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("243")).
+		Width(m.width).
+		PaddingLeft(2)
+	return style.Render(statusText)
+}
+
+func formatTokenCount(n int) string {
+	if n >= 1000000 {
+		return fmt.Sprintf("%.0fM", float64(n)/1000000)
+	}
+	if n >= 1000 {
+		return fmt.Sprintf("%.0fK", float64(n)/1000)
+	}
+	return fmt.Sprintf("%d", n)
 }
 
 func (m Model) renderInput() string {

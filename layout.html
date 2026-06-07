@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <style>
+        * {
+            margin: 0 0;
+            padding: 0;
+        }
+
+        ul li {
+            list-style: none;
+        }
+
+        .header, .conversation, .prompt, .status {
+            border: 1px solid black;
+        }
+    </style>
+</head>
+<body>
+<div class="viewport">
+    <div class="header" style="display: flex; flex-direction: row; justify-content: left;">
+        <div>logo</div>
+        <div>info</div>
+    </div>
+    <ul class="conversation">
+        <li>
+            <div class="user">
+                <p>"I'd like to change this code about ..."</p>
+            </div>
+        </li>
+        <li>
+            <div class="reasoning">
+                <p>Thinking...</p>
+                <p>"Reasoning content......."</p>
+            </div>
+        </li>
+        <li>
+            <div class="reasoning">
+                <p>Thinking...</p>
+                <p>"Reasoning content......."</p>
+            </div>
+        </li>
+        <li>
+            <div class="content">
+                Output Content
+            </div>
+        </li>
+    </ul>
+    <div class="prompt">
+        <span>Input message here...</span>
+    </div>
+    <div class="status">
+        MiMo V2.5 · 1M Context · Used 35.2 % context
+    </div>
+</div>
+</body>
+</html>
