@@ -23,9 +23,24 @@
 
 ## 快速开始
 
+使用 [Task](https://taskfile.dev/) 构建并运行：
+
 ```bash
-go build -o caigo ./cmd
-./caigo
+# 安装 Task（如果尚未安装）
+go install github.com/go-task/task/v3/cmd/task@latest
+
+# 构建并运行
+task run
+```
+
+或者分步执行：
+
+```bash
+# 仅构建
+task build
+
+# 运行
+./build/caigo
 ```
 
 首次启动时会交互式引导配置 API 地址和密钥，配置保存在 `~/.caigo/config.json`。
@@ -49,13 +64,18 @@ go build -o caigo ./cmd
     "mimo-v2.5-pro": {
       "name": "MiMo V2.5 Pro",
       "provider": "xiaomi-mimo",
-      "contextWindowSize": 128000
+      "contextWindowSize": 1000000
+    },
+    "mimo-v2.5": {
+      "name": "MiMo V2.5",
+      "provider": "xiaomi-mimo",
+      "contextWindowSize": 1000000
     }
   }
 }
 ```
 
-通过环境变量 `CAIGO_MODEL` 可切换使用的模型。
+通过修改 `.model` 切换使用的模型。
 
 ## 架构
 
