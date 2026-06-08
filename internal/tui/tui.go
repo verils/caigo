@@ -6,7 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -54,7 +55,8 @@ type Config struct {
 // Model is the bubbletea model for the chat TUI.
 type Model struct {
 	conversation []Entry
-	input        textinput.Model
+	input        textarea.Model
+	focusCmd     tea.Cmd
 	viewport     viewport.Model
 
 	llm           llm.Model
@@ -78,11 +80,18 @@ type Model struct {
 
 // New creates a TUI model from the given config.
 func New(cfg Config) Model {
-	ti := textinput.New()
-	ti.Prompt = "  > "
-	ti.Placeholder = ""
-	ti.Focus()
-	ti.CharLimit = 0
+	ta := textarea.New()
+	ta.ShowLineNumbers = false
+	ta.Prompt = "  > "
+	ta.Placeholder = "Type a message..."
+	ta.DynamicHeight = true
+	ta.MinHeight = 1
+	ta.MaxHeight = 10
+	focusCmd := ta.Focus()
+	ta.KeyMap.InsertNewline = key.NewBinding(
+		key.WithKeys("shift+enter"),
+		key.WithHelp("shift+enter", "newline"),
+	)
 
 	vp := viewport.New()
 	vp.SoftWrap = true
@@ -94,7 +103,8 @@ func New(cfg Config) Model {
 		modelName:     cfg.ModelName,
 		ctxWindowSize: cfg.ContextWindowSize,
 		ctxEstimator:  cfg.ContextEstimator,
-		input:         ti,
+		input:         ta,
+		focusCmd:      focusCmd,
 		viewport:      vp,
 		eventCh:       make(chan tea.Msg, 100),
 	}
@@ -111,9 +121,7 @@ func Run(cfg Config) error {
 // --- bubbletea.Model interface ---
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(
-		textinput.Blink,
-	)
+	return m.focusCmd
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -123,6 +131,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.viewport.SetWidth(msg.Width)
 		m.viewport.SetHeight(msg.Height)
+		m.input.SetWidth(msg.Width)
 		return m, m.updateContent()
 
 	case tea.KeyMsg:
@@ -151,22 +160,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if text == "" || m.busy {
 				break
 			}
-			m.input.SetValue("")
+			m.input.Reset()
 			m.conversation = append(m.conversation, Entry{Kind: EntryUser, Content: text})
 			m.busy = true
 			m.streamBuf = ""
 			taskCmd := m.runTask(text)
 			return m, tea.Batch(m.updateContent(), taskCmd)
-		case "up", "pageup":
-			if !m.input.Focused() {
-				m.viewport.ScrollUp(1)
-				return m, nil
-			}
-		case "down", "pagedown":
-			if !m.input.Focused() {
-				m.viewport.ScrollDown(1)
-				return m, nil
-			}
+		case "pageup":
+			m.viewport.ScrollUp(1)
+			return m, nil
+		case "pagedown":
+			m.viewport.ScrollDown(1)
+			return m, nil
 		}
 
 	case agentDeltaMsg:
@@ -211,7 +216,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !m.busy {
 		var inputCmd tea.Cmd
 		m.input, inputCmd = m.input.Update(msg)
-		return m, inputCmd
+		return m, tea.Batch(inputCmd, m.updateContent())
 	}
 
 	return m, nil
@@ -410,19 +415,6 @@ func formatTokenCount(n int) string {
 
 func (m Model) renderInput() string {
 	bgStyle := lipgloss.NewStyle().Background(inputBgColor)
-
-	if m.input.Value() == "" {
-		promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#007D9C")).Background(inputBgColor).Bold(true)
-		prompt := promptStyle.Render("  > ")
-		cursor := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Background(inputBgColor).Render("█")
-		ph := lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Background(inputBgColor).Render(" Type a message...")
-		padW := m.width - lipgloss.Width(prompt+cursor+ph)
-		if padW < 0 {
-			padW = 0
-		}
-		pad := lipgloss.NewStyle().Background(inputBgColor).Width(padW).Render("")
-		return m.wrapInputBlock(prompt + cursor + ph + pad)
-	}
 
 	lines := strings.Split(m.input.View(), "\n")
 	for i, line := range lines {
