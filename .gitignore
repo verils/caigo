@@ -4,6 +4,7 @@
 .idea/
 
 # Build
+.task/
 build/
 dist/
 *.exe
