@@ -9,12 +9,17 @@ vars:
   COMMIT:
     sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
   BUILD_TIME:
-    sh: date -u +"%Y-%m-%dT%H:%M:%SZ"
+    sh: git log -1 --format=%cI 2>/dev/null || echo unknown
   LDFLAGS: >-
     -s -w
     -X main.version={{.VERSION}}
     -X main.commit={{.COMMIT}}
     -X main.buildTime={{.BUILD_TIME}}
+  GOOS:
+    sh: go env GOOS
+  GOARCH:
+    sh: go env GOARCH
+  ARTIFACT: "{{.APP}}-{{.GOOS}}-{{.GOARCH}}{{exeExt}}"
 
 tasks:
   build:
@@ -24,16 +29,16 @@ tasks:
       - go.mod
       - go.sum
     generates:
-      - "{{.BUILD_DIR}}/{{.APP}}{{exeExt}}"
+      - "{{.BUILD_DIR}}/{{.ARTIFACT}}"
     cmds:
       - mkdir -p {{.BUILD_DIR}}
-      - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.APP}}{{exeExt}} {{.ENTRY}}
+      - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.ARTIFACT}} {{.ENTRY}}
 
   run:
     desc: Build and run
     cmds:
       - task: build
-      - "{{.BUILD_DIR}}/{{.APP}}{{exeExt}}"
+      - "{{.BUILD_DIR}}/{{.ARTIFACT}}"
 
   install:
     desc: Install to $GOPATH/bin
@@ -65,7 +70,6 @@ tasks:
     desc: Remove build artifacts
     cmds:
       - rm -rf {{.BUILD_DIR}}
-      - rm -f {{.APP}}{{exeExt}}
 
   snapshot:
     desc: Build snapshot release with GoReleaser
