@@ -82,11 +82,21 @@ type Model struct {
 func New(cfg Config) Model {
 	ta := textarea.New()
 	ta.ShowLineNumbers = false
-	ta.Prompt = "  > "
+	ta.Prompt = " > "
 	ta.Placeholder = "Type a message..."
 	ta.DynamicHeight = true
 	ta.MinHeight = 1
 	ta.MaxHeight = 10
+	ta.SetPromptFunc(3, func(info textarea.PromptInfo) string {
+		if info.LineNumber == 0 {
+			return " > "
+		}
+		return "   "
+	})
+	styles := ta.Styles()
+	styles.Focused.Base = styles.Focused.Base.Background(inputBgColor)
+	styles.Blurred.Base = styles.Blurred.Base.Background(inputBgColor)
+	ta.SetStyles(styles)
 	focusCmd := ta.Focus()
 	ta.KeyMap.InsertNewline = key.NewBinding(
 		key.WithKeys("shift+enter"),
@@ -416,13 +426,18 @@ func formatTokenCount(n int) string {
 func (m Model) renderInput() string {
 	bgStyle := lipgloss.NewStyle().Background(inputBgColor)
 
-	lines := strings.Split(m.input.View(), "\n")
+	view := m.input.View()
+	lines := strings.Split(view, "\n")
 	for i, line := range lines {
 		padW := m.width - lipgloss.Width(line)
 		if padW < 0 {
 			padW = 0
 		}
-		lines[i] = bgStyle.Render(line) + bgStyle.Render(strings.Repeat(" ", padW))
+		if padW > 0 {
+			lines[i] = line + bgStyle.Render(strings.Repeat(" ", padW))
+		} else {
+			lines[i] = line
+		}
 	}
 	return m.wrapInputBlock(strings.Join(lines, "\n"))
 }
