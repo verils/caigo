@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/verils/caigo/internal/llm"
@@ -50,11 +51,11 @@ type Config struct {
 	ContextEstimator  ContextEstimator // nil = hide usage
 }
 
-// Model is the bubbletea llm for the chat TUI.
+// Model is the bubbletea model for the chat TUI.
 type Model struct {
 	conversation []Entry
 	input        textinput.Model
-	printedIdx   int // number of conversation entries already printed via tea.Println
+	viewport     viewport.Model
 
 	llm           llm.Model
 	tools         []tool.Tool
@@ -65,8 +66,8 @@ type Model struct {
 
 	busy      bool   // task is running
 	streamBuf string // current assistant message being streamed
-	thinkBuf  string // current thinking block being streamed
 	width     int
+	height    int
 
 	cancelTask     context.CancelFunc // cancel current task
 	eventCh        chan tea.Msg       // channel for task events
@@ -75,13 +76,17 @@ type Model struct {
 	quitHintExpiry time.Time          // when to clear the quit hint
 }
 
-// New creates a TUI llm from the given config.
+// New creates a TUI model from the given config.
 func New(cfg Config) Model {
 	ti := textinput.New()
 	ti.Prompt = "  > "
-	ti.Placeholder = "" // We render placeholder ourselves for full background coverage
+	ti.Placeholder = ""
 	ti.Focus()
 	ti.CharLimit = 0
+
+	vp := viewport.New()
+	vp.SoftWrap = true
+
 	return Model{
 		llm:           cfg.Model,
 		tools:         cfg.Tools,
@@ -90,6 +95,7 @@ func New(cfg Config) Model {
 		ctxWindowSize: cfg.ContextWindowSize,
 		ctxEstimator:  cfg.ContextEstimator,
 		input:         ti,
+		viewport:      vp,
 		eventCh:       make(chan tea.Msg, 100),
 	}
 }
@@ -107,7 +113,6 @@ func Run(cfg Config) error {
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		textinput.Blink,
-		tea.Println(m.renderHeader()),
 	)
 }
 
@@ -115,14 +120,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
-		return m, nil
+		m.height = msg.Height
+		m.viewport.SetWidth(msg.Width)
+		m.viewport.SetHeight(msg.Height)
+		return m, m.updateContent()
 
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "ctrl+d":
 			if m.busy {
 				m.cancelCurrentTask()
-				return m, m.printNewEntries()
+				return m, m.updateContent()
 			}
 			now := time.Now()
 			if now.Sub(m.lastQuitTime) < 3*time.Second {
@@ -135,7 +143,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			if m.busy {
 				m.cancelCurrentTask()
-				return m, m.printNewEntries()
+				return m, m.updateContent()
 			}
 			return m, nil
 		case "enter":
@@ -147,10 +155,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.conversation = append(m.conversation, Entry{Kind: EntryUser, Content: text})
 			m.busy = true
 			m.streamBuf = ""
-			m.thinkBuf = ""
-			printCmd := m.printNewEntries()
 			taskCmd := m.runTask(text)
-			return m, tea.Batch(printCmd, taskCmd)
+			return m, tea.Batch(m.updateContent(), taskCmd)
+		case "up", "pageup":
+			if !m.input.Focused() {
+				m.viewport.ScrollUp(1)
+				return m, nil
+			}
+		case "down", "pagedown":
+			if !m.input.Focused() {
+				m.viewport.ScrollDown(1)
+				return m, nil
+			}
 		}
 
 	case agentDeltaMsg:
@@ -160,43 +176,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.busy = false
 			m.streamBuf = ""
-			m.thinkBuf = ""
-			return m, tea.Batch(m.printNewEntries(), m.nextEvent())
+			return m, tea.Batch(m.updateContent(), m.nextEvent())
 		}
 		m.streamBuf += msg.text
-		return m, m.nextEvent()
-
-	case agentThinkingMsg:
-		if msg.text == "end" {
-			if m.thinkBuf != "" {
-				m.conversation = append(m.conversation, Entry{Kind: EntryThinking, Content: m.thinkBuf})
-				m.thinkBuf = ""
-			}
-		} else {
-			m.thinkBuf += msg.text
-		}
-		return m, m.nextEvent()
+		return m, tea.Batch(m.updateContent(), m.nextEvent())
 
 	case agentToolCallMsg:
 		m.flushStreamBuf()
 		m.conversation = append(m.conversation, Entry{Kind: EntryToolCall, Content: msg.text})
-		return m, tea.Batch(m.printNewEntries(), m.nextEvent())
+		return m, tea.Batch(m.updateContent(), m.nextEvent())
 
 	case agentToolResultMsg:
-		// Mark the last tool call as completed
 		for i := len(m.conversation) - 1; i >= 0; i-- {
 			if m.conversation[i].Kind == EntryToolCall {
 				m.conversation[i].Content += " ✓"
 				break
 			}
 		}
-		return m, m.nextEvent()
+		return m, tea.Batch(m.updateContent(), m.nextEvent())
 
 	case agentDoneMsg:
 		m.flushStreamBuf()
-		m.flushThinkBuf()
 		m.busy = false
-		return m, m.printNewEntries()
+		return m, m.updateContent()
 
 	case tickMsg:
 		if time.Now().After(m.quitHintExpiry) {
@@ -205,6 +207,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// When not busy, forward input events to textinput.
 	if !m.busy {
 		var inputCmd tea.Cmd
 		m.input, inputCmd = m.input.Update(msg)
@@ -215,24 +218,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() tea.View {
-	return tea.NewView(m.renderInput() + "\n" + m.renderStatusBar() + "\n" + m.renderHint())
+	v := tea.NewView(m.viewport.View())
+	v.AltScreen = true
+	return v
 }
 
 // --- helpers ---
 
-// printNewEntries returns a tea.Cmd that prints any conversation entries
-// that haven't been printed yet. Uses tea.Println which inserts unmanaged
-// lines above the frame, allowing terminal scrolling.
-func (m *Model) printNewEntries() tea.Cmd {
-	if m.printedIdx >= len(m.conversation) {
-		return nil
-	}
+// updateContent rebuilds the full page content and sets it on the viewport,
+// then scrolls to bottom.
+func (m *Model) updateContent() tea.Cmd {
 	var b strings.Builder
-	for i := m.printedIdx; i < len(m.conversation); i++ {
-		m.renderEntry(&b, m.conversation[i])
+
+	// Header
+	b.WriteString(m.renderHeader())
+
+	// Conversation entries
+	for _, e := range m.conversation {
+		m.renderEntry(&b, e)
 	}
-	m.printedIdx = len(m.conversation)
-	return tea.Println(b.String())
+
+	// Streaming buffer (in-progress assistant message)
+	if m.streamBuf != "" {
+		m.renderStreamBuf(&b)
+	}
+
+	// Input area
+	b.WriteString(m.renderInput())
+
+	// Status bar
+	b.WriteString(m.renderStatusBar())
+
+	// Quit hint
+	b.WriteString(m.renderHint())
+
+	m.viewport.SetContent(b.String())
+	m.viewport.GotoBottom()
+	return nil
 }
 
 func (m *Model) flushStreamBuf() {
@@ -242,20 +264,12 @@ func (m *Model) flushStreamBuf() {
 	}
 }
 
-func (m *Model) flushThinkBuf() {
-	if m.thinkBuf != "" {
-		m.conversation = append(m.conversation, Entry{Kind: EntryThinking, Content: m.thinkBuf})
-		m.thinkBuf = ""
-	}
-}
-
 func (m *Model) cancelCurrentTask() {
 	if m.cancelTask != nil {
 		m.cancelTask()
 		m.cancelTask = nil
 	}
 	m.flushStreamBuf()
-	m.flushThinkBuf()
 	m.busy = false
 	m.conversation = append(m.conversation, Entry{Kind: EntryAssistant, Content: "[Task cancelled]"})
 }
@@ -277,9 +291,6 @@ var (
 	styleToolCall = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("214")).
 			Bold(true)
-
-	styleSpinner = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("243"))
 
 	separator = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240"))
@@ -316,6 +327,19 @@ func (m Model) renderEntry(b *strings.Builder, e Entry) {
 	fmt.Fprintln(b, separator.Render(strings.Repeat("─", w-4)))
 }
 
+func (m Model) renderStreamBuf(b *strings.Builder) {
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	innerW := w - 4
+	if innerW < 10 {
+		innerW = 10
+	}
+	fmt.Fprintln(b, styleAssistant.Render("    ")+styleAssistant.Width(innerW).Render(m.streamBuf))
+	fmt.Fprintln(b, separator.Render(strings.Repeat("─", w-4)))
+}
+
 func (m Model) renderHeader() string {
 	art := []string{
 		"",
@@ -333,14 +357,14 @@ func (m Model) renderHeader() string {
 		lines = append(lines, "  "+lipgloss.NewStyle().Foreground(logoColor).Render(item))
 	}
 	header := strings.Join(lines, "\n")
-	return lipgloss.JoinVertical(lipgloss.Left, header)
+	return lipgloss.JoinVertical(lipgloss.Left, header) + "\n"
 }
 
 func (m Model) renderHint() string {
 	if m.quitHint != "" && time.Now().Before(m.quitHintExpiry) {
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Width(m.width).Render("  " + m.quitHint)
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Width(m.width).Render("  "+m.quitHint) + "\n"
 	}
-	return lipgloss.NewStyle().Width(m.width).Render("")
+	return ""
 }
 
 func (m Model) renderStatusBar() string {
@@ -348,21 +372,17 @@ func (m Model) renderStatusBar() string {
 		return ""
 	}
 
-	// Model name
 	modelName := m.modelName
 	if modelName == "" {
 		modelName = "Unknown"
 	}
 
-	// Build status parts
 	parts := []string{modelName}
 
-	// Context window size
 	if m.ctxWindowSize > 0 {
 		parts = append(parts, fmt.Sprintf("%s Context", formatTokenCount(m.ctxWindowSize)))
 	}
 
-	// Context usage percentage
 	if m.ctxEstimator != nil && m.ctxWindowSize > 0 {
 		used := m.ctxEstimator.ContextTokens()
 		percent := float64(used) / float64(m.ctxWindowSize) * 100
@@ -375,7 +395,7 @@ func (m Model) renderStatusBar() string {
 		Foreground(lipgloss.Color("243")).
 		Width(m.width).
 		PaddingLeft(2)
-	return style.Render(statusText)
+	return style.Render(statusText) + "\n"
 }
 
 func formatTokenCount(n int) string {
@@ -389,13 +409,9 @@ func formatTokenCount(n int) string {
 }
 
 func (m Model) renderInput() string {
-	if m.busy {
-		return lipgloss.NewStyle().Width(m.width).Render(
-			styleSpinner.Render("  ⏳ Waiting for response..."))
-	}
+	bgStyle := lipgloss.NewStyle().Background(inputBgColor)
+
 	if m.input.Value() == "" {
-		// Render placeholder ourselves — textinput's placeholder uses
-		// unstyled strings.Repeat(" ", n) for padding which shows as black.
 		promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#007D9C")).Background(inputBgColor).Bold(true)
 		prompt := promptStyle.Render("  > ")
 		cursor := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Background(inputBgColor).Render("█")
@@ -407,10 +423,7 @@ func (m Model) renderInput() string {
 		pad := lipgloss.NewStyle().Background(inputBgColor).Width(padW).Render("")
 		return m.wrapInputBlock(prompt + cursor + ph + pad)
 	}
-	// Non-empty input: render textinput view, apply matching background,
-	// and pad each line to full width so the background fills uniformly.
-	// Supports multi-line input (textinput.View() may contain newlines).
-	bgStyle := lipgloss.NewStyle().Background(inputBgColor)
+
 	lines := strings.Split(m.input.View(), "\n")
 	for i, line := range lines {
 		padW := m.width - lipgloss.Width(line)
@@ -422,8 +435,7 @@ func (m Model) renderInput() string {
 	return m.wrapInputBlock(strings.Join(lines, "\n"))
 }
 
-// wrapInputBlock wraps an input block (one or more lines) with the
-// top/bottom ▄/▀ borders in the input background color.
+// wrapInputBlock wraps an input block with top/bottom ▄/▀ borders.
 func (m Model) wrapInputBlock(block string) string {
 	w := m.width
 	if w <= 0 {
@@ -436,7 +448,7 @@ func (m Model) wrapInputBlock(block string) string {
 	downBorder := lipgloss.NewStyle().
 		Foreground(inputBgColor).
 		Render(strings.Repeat("▀", w))
-	return lipgloss.JoinVertical(lipgloss.Left, upBorder, block, downBorder)
+	return lipgloss.JoinVertical(lipgloss.Left, upBorder, block, downBorder) + "\n"
 }
 
 // --- agent bridge ---
@@ -446,10 +458,6 @@ type tickMsg struct{}
 type agentDeltaMsg struct {
 	text string
 	err  error
-}
-
-type agentThinkingMsg struct {
-	text string // "end" signals close of a thinking block
 }
 
 type agentToolCallMsg struct {
@@ -463,7 +471,6 @@ type agentDoneMsg struct{}
 // runTask launches the task in a background goroutine and returns a tea.Cmd
 // that blocks on the event channel until the first event arrives.
 func (m *Model) runTask(input string) tea.Cmd {
-	// Each task gets its own channel; previous channel (if any) is abandoned.
 	ch := make(chan tea.Msg, 100)
 	m.eventCh = ch
 	task := session.NewTask(m.llm, m.tools)
