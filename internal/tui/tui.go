@@ -314,52 +314,57 @@ var (
 			Foreground(lipgloss.Color("214")).
 			Bold(true)
 
-	separator = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240"))
+	cardLeft  = 2
+	cardRight = 2
 )
 
 func (m Model) renderEntry(b *strings.Builder, e Entry) {
-	w := m.width
-	if w <= 0 {
-		w = 80
-	}
-
-	var prefix, text string
+	var prefix string
 	var style lipgloss.Style
 	switch e.Kind {
 	case EntryUser:
 		prefix, style = "  > ", styleUser
-		text = e.Content
 	case EntryAssistant:
 		prefix, style = "    ", styleAssistant
-		text = e.Content
 	case EntryThinking:
 		prefix, style = "  💭 ", styleThinking
-		text = e.Content
 	case EntryToolCall:
 		prefix, style = "  🔧 ", styleToolCall
-		text = e.Content
 	}
 
-	innerW := w - 4
-	if innerW < 10 {
-		innerW = 10
-	}
-	fmt.Fprintln(b, style.Render(prefix)+style.Width(innerW).Render(text))
-	fmt.Fprintln(b, separator.Render(strings.Repeat("─", w-4)))
+	card := renderCard(m.width, cardLeft, cardRight, style, e.Content, prefix)
+	fmt.Fprintln(b, card)
 }
 
 func (m Model) renderStreamBuf(b *strings.Builder) {
-	w := m.width
+	card := renderCard(m.width, cardLeft, cardRight, styleAssistant, m.streamBuf, "    ")
+	fmt.Fprintln(b, card)
+}
+
+// renderCard renders text inside a bordered region with left/right margins.
+// Each output line is: leftPad + styledContent(innerW) + rightPad.
+// firstPrefix overrides leftPad on the first line when non-empty.
+func renderCard(w, left, right int, style lipgloss.Style, text, firstPrefix string) string {
 	if w <= 0 {
 		w = 80
 	}
-	innerW := w - 4
-	if innerW < 10 {
-		innerW = 10
+	innerW := w - left - right
+	if innerW < 1 {
+		innerW = 1
 	}
-	fmt.Fprintln(b, styleAssistant.Render("    ")+styleAssistant.Width(innerW).Render(m.streamBuf))
-	fmt.Fprintln(b, separator.Render(strings.Repeat("─", w-4)))
+
+	leftPad := strings.Repeat(" ", left)
+	rightPad := strings.Repeat(" ", right)
+
+	lines := strings.Split(style.Width(innerW).Render(text), "\n")
+	for i, line := range lines {
+		pad := leftPad
+		if i == 0 && firstPrefix != "" {
+			pad = firstPrefix
+		}
+		lines[i] = pad + line + rightPad
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m Model) renderHeader() string {
